@@ -1,0 +1,42 @@
+<?php
+
+/**
+ * AI provider settings - copy to config/ai.php (gitignored) and paste your key.
+ *
+ * Switching provider on demo day is ONE line: change 'provider'.
+ * Keys can also come from the environment (GEMINI_API_KEY / GROQ_API_KEY), which
+ * take precedence over the values below when set.
+ *
+ *   Gemini key (free, no card): https://aistudio.google.com/apikey
+ *   Groq key   (free, no card): https://console.groq.com/keys
+ */
+return [
+    'provider' => 'gemini',          // 'gemini' | 'groq'
+
+    // 0 = deterministic SQL generation. Same question, same SQL, on the projector.
+    'temperature' => 0,
+    'timeoutSeconds' => 45,
+    'maxToolRounds' => 6,            // model <-> tool round-trips per question
+
+    'providers' => [
+        'gemini' => [
+            'apiKey' => '',          // set in config/ai-local.php (gitignored), not here
+            // Google now restricts gemini-2.5-* to accounts that used them before.
+            // If you get a "model not found / not available" error, switch to
+            // 'gemini-3.8-flash' (or 'gemini-3.5-flash-lite').
+            'model' => 'gemini-3.8-flash',
+            'baseUrl' => 'https://generativelanguage.googleapis.com/v1beta',
+            // Optional, model-specific. 2.5: ['thinkingBudget' => 0]  3.x: ['thinkingLevel' => 'low']
+            'thinkingConfig' => null,
+        ],
+        'groq' => [
+            'apiKey' => '',          // <-- PASTE YOUR GROQ API KEY HERE (fallback provider)
+            'model' => 'openai/gpt-oss-120b',
+            'baseUrl' => 'https://api.groq.com/openai/v1',
+        ],
+    ],
+
+    // PHP on Windows often ships without a CA bundle. By default the OS certificate
+    // store is used (TLS verification stays ON). Set a path to a cacert.pem to override.
+    'caBundle' => null,
+];

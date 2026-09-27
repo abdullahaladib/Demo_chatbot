@@ -1,0 +1,12 @@
+<?php
+
+/**
+ * Copy to config/ai-local.php (gitignored) on each device and paste your key(s).
+ * Anything here overrides config/ai.php (merged recursively).
+ */
+return [
+    'providers' => [
+        'gemini' => ['apiKey' => 'PASTE_GEMINI_KEY_HERE'],
+        // 'groq' => ['apiKey' => 'PASTE_GROQ_KEY_HERE'],
+    ],
+];

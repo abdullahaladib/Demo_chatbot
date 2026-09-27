@@ -1,0 +1,40 @@
+# phpstorm project files
+.idea
+
+# visual studio code project files
+.vscode
+
+# netbeans project files
+nbproject
+
+# zend studio for eclipse project files
+.buildpath
+.project
+.settings
+
+# windows thumbnail cache
+Thumbs.db
+
+# composer vendor dir
+/vendor
+
+# composer itself is not needed
+composer.phar
+
+# Mac DS_Store Files
+.DS_Store
+
+# phpunit itself is not needed
+phpunit.phar
+# local phpunit config
+/phpunit.xml
+
+tests/_output/*
+tests/_support/_generated
+
+#vagrant folder
+/.vagrant
+# NOTE: config/db-local.php and config/ai.php (without key) are deliberately COMMITTED (owner decision,
+# demo project on fabricated data) so every device can pull and run. See CLAUDE.md.
+# The AI API key is NOT committed (repo is public; Google revokes leaked keys).
+/config/ai-local.php
