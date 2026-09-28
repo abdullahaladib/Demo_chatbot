@@ -278,8 +278,20 @@ The demo role switcher must be off outside demos.
   CRM, hotel...) are possible later phases: each needs views + access-map entries + tests.
 - **DONE (2026-09-28): the chatbot is plugged into the company ERP clone** at `D:\Workspace\app`. See section 13.
   It passes 68/68 offline tests (`tests/run_tests.php`, scripted model). The widget was checked in headless Edge on
-  the dashboard and the Accounts module with a stubbed fetch. **No live AI call has been made in the ERP yet**; run one
-  only when the owner asks.
+  the dashboard and the Accounts module with a stubbed fetch. The owner's first live questions reached Gemini, which
+  answered 503 (overloaded). That led to the 90 s turn budget and the clearer "busy" message (commit dc3d940). A
+  successful live answer in the ERP has not been confirmed yet.
+- **WHERE WE LEFT OFF (end of 2026-09-28)**, to pick up next session:
+  - The ERP server on :8090 ran from a Claude session and stops with it. Restart it with the command in section 13.
+  - Deployment guide PDF for the owner: `D:\ERP_AI_Chatbot_Plugin_Guide.pdf`. The owner asked to leave Demo_chatbot out
+    of it. It is not in git; its HTML source was in the session scratchpad and may be gone.
+  - The owner was told how to fill `ai_knowledge_base` (section/title/body rows) and `ai_role_assignment` (pbi_id,
+    role hr|dept_head|ceo, dept_id for dept_head) with SQL. Offered: a small ERP admin page to manage both without SQL.
+  - Open items:
+    - test the plug-in on a MariaDB staging copy (the MariaDB path is untested);
+    - confirm on the live server: the PHP version, DB root/WHM access for `apply_grants.php`, and outbound HTTPS to Google;
+    - the Yii demo has the same 30 s timeout weakness when Gemini is slow (fixed only in the plug-in);
+    - get a paid Gemini tier before using real data.
 - **Coming later (owner):** a new UI supplied by the boss. It must keep the floating Messenger-style chat
   widget on every signed-in page. Wait for the owner to say what goes where.
 - Suggested: add a Groq key as a demo-day fallback.
@@ -382,6 +394,9 @@ generated data, and fails if it spots a key. Human docs: `erp_plugin/app/control
 ## Change log
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
+
+- 2026-09-28 (original Windows device) — End of day: section 11 records where we left off. The deployment PDF was
+  revised to leave Demo_chatbot out. Code, the erp_plugin mirror and GitHub are in sync.
 
 - 2026-09-28 (original Windows device) — **ERP plug-in: MariaDB support** (the live ERP DB is MariaDB 10.11). `Db::ai()` detects
   MariaDB and uses `max_statement_time` + `tx_read_only` instead of MySQL's `MAX_EXECUTION_TIME` + `transaction_read_only`
