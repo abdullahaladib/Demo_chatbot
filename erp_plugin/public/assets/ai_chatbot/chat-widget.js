@@ -182,9 +182,13 @@
                 body: JSON.stringify({question: q}),
                 credentials: 'same-origin',
             });
-            data = await res.json();
+            try {
+                data = await res.json();
+            } catch (e) { // the server answered, but not with JSON (a PHP error page)
+                data = {answer: 'The assistant hit a server error (HTTP ' + res.status + '). Please try again.', path: 'error', latencyMs: 0, queries: [], trace: []};
+            }
         } catch (e) {
-            data = {answer: 'Could not reach the ERP server. Please try again.', path: 'error', latencyMs: 0, queries: [], trace: []};
+            data = {answer: 'Could not reach the ERP server. Please check your connection and try again.', path: 'error', latencyMs: 0, queries: [], trace: []};
         } finally {
             $('aic-typing')?.remove();
             send.disabled = input.disabled = false;

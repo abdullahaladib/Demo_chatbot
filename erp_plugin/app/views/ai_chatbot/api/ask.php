@@ -42,6 +42,23 @@ if ($token === '' || !hash_equals((string) ($_SESSION['csrf_token'] ?? ''), $tok
     $fail(403, 'Security check failed. Please reload the page.');
 }
 
+// One question may take several AI round-trips (plus retries when the AI service is busy).
+// The turn is capped by turnBudgetSeconds; give PHP more than that, so it is never killed mid-answer.
+set_time_limit((int) \AiChatbot\Config::get('turnBudgetSeconds', 90) + 30);
+// If PHP still dies (fatal error), answer in JSON so the widget can say what happened.
+register_shutdown_function(static function (): void {
+    $e = error_get_last();
+    if ($e !== null && in_array($e['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR], true)) {
+        Log::error('ask.php fatal: ' . $e['message']);
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: application/json; charset=utf-8');
+        }
+        echo json_encode(['answer' => 'The assistant hit a server error and could not finish. Please try again.',
+            'path' => 'error', 'queries' => [], 'trace' => [], 'table' => null]);
+    }
+});
+
 $session = $_SESSION;
 // Release the session lock: an AI answer takes seconds and must not block the user's other ERP tabs.
 session_write_close();

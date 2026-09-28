@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AiChatbot;
 
+use AiChatbot\provider\HttpJson;
 use AiChatbot\provider\LlmProvider;
 use AiChatbot\provider\ProviderError;
 use AiChatbot\provider\ProviderFactory;
@@ -38,6 +39,7 @@ final class ChatService
     public function ask(Identity $identity, string $question): array
     {
         $started = microtime(true);
+        HttpJson::setDeadline($started + (int) Config::get('turnBudgetSeconds', 90));
         $question = trim($question);
         $state = [
             'answer' => '', 'path' => 'info', 'role' => $identity->tier,

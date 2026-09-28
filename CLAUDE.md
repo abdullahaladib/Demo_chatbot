@@ -373,6 +373,8 @@ generated data, and fails if it spots a key. Human docs: `erp_plugin/app/control
     dashboard, dark mode followed);
   - a "host-page armour" block wins back fonts and inputs from the ERP's global `!important` rules;
   - suggestion chips per module in `data/suggestions.php` are only examples: no hard-coded SQL behind them.
+- Time budget: one question is capped at `turnBudgetSeconds` (90). PHP's default 30 s limit killed slow Gemini calls, and
+  `ask.php` now raises it. If Gemini is busy (503), the user sees "overloaded, try again in a minute", not a generic error.
 - Tests: `cd /d/Workspace/app && php app/controllers/ai_chatbot/tests/run_tests.php`. It checks identity, policy,
   validator, MySQL grants, gateway, describeTables, the prompt, ChatService with a scripted model, and HTTP guards
   (401/405/403, identity from the session). The HTTP part needs the :8090 server; it is skipped otherwise.
@@ -380,6 +382,13 @@ generated data, and fails if it spots a key. Human docs: `erp_plugin/app/control
 ## Change log
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
+
+- 2026-09-28 (original Windows device) — **ERP plug-in fix: "Could not reach the ERP server"** after a question. Cause: Gemini
+  answered 503 (high demand), the retries plus a hung call passed PHP's 30 s `max_execution_time`, and PHP died with an
+  HTML error that the widget could not parse. The database was never reached. Fix: a per-question time budget
+  (`turnBudgetSeconds` = 90), so HttpJson skips retries and shortens curl timeouts to fit; `ask.php` sets the time limit to
+  budget + 30 and always answers JSON (a shutdown handler); new ProviderError `busy` (503) and `timeout` messages; the
+  widget tells a server error apart from a network failure. Tested against a local fake Gemini (503 / hang); no quota used.
 
 - 2026-09-28 (original Windows device) — Owner switched the model to **`gemini-3.7-flash`** in both `config/ai.php` (Yii
   demo) and the ERP plug-in's `config.php`. No live AI test.

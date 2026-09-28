@@ -10,6 +10,7 @@ return [
     'temperature' => 0,                     // deterministic SQL generation
     'timeoutSeconds' => 45,
     'maxToolRounds' => 8,                   // role check + table lookups + queries + answer
+    'turnBudgetSeconds' => 90,            // wall-clock cap for one question (all AI calls + retries)
     'providers' => [
         'gemini' => [
             'type' => 'gemini',

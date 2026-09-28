@@ -84,7 +84,7 @@ if (($_SESSION['mhafuz'] ?? '') === 'Active' && !empty($_SESSION['user']['id']) 
         <span class="aic-unread" id="aic-unread" hidden></span>
     </button>
 </div>
-<script src="<?= $aicH(SERVER_ROOT . 'public/assets/ai_chatbot/chat-widget.js') ?>?v=1"></script>
+<script src="<?= $aicH(SERVER_ROOT . 'public/assets/ai_chatbot/chat-widget.js') ?>?v=2"></script>
             <?php
         }
     } catch (Throwable $aicError) {

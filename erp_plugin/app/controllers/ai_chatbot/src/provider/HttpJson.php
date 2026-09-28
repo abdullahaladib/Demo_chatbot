@@ -11,6 +11,19 @@ namespace AiChatbot\provider;
  */
 final class HttpJson
 {
+    /** Wall-clock end of the current chat turn (unix time); 0 = none. Set by ChatService. */
+    private static float $deadline = 0.0;
+
+    public static function setDeadline(float $unixTime): void
+    {
+        self::$deadline = $unixTime;
+    }
+
+    private static function remaining(): float
+    {
+        return self::$deadline > 0 ? self::$deadline - microtime(true) : INF;
+    }
+
     public function __construct(
         private readonly int $timeoutSeconds = 45,
         private readonly ?string $caBundle = null,
@@ -25,7 +38,11 @@ final class HttpJson
     {
         // Free tiers return transient 503 ("high demand") and 429 (per-minute quota).
         // Retry twice with a short backoff before giving up.
+        // Never retry past the turn's time budget: the request would be killed mid-wait.
         foreach ([0, 2, 5] as $attempt => $waitSeconds) {
+            if ($attempt > 0 && self::remaining() < $waitSeconds + 10) {
+                break;
+            }
             sleep($waitSeconds);
             $response = $this->postOnce($url, $headers, $body);
             if (!in_array($response['status'], [429, 503], true)) {
@@ -46,7 +63,7 @@ final class HttpJson
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER => array_merge(['Content-Type: application/json'], $headers),
             CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_TIMEOUT => $this->timeoutSeconds,
+            CURLOPT_TIMEOUT => (int) max(5, min($this->timeoutSeconds, floor(self::remaining()))),
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
         ];
@@ -59,6 +76,9 @@ final class HttpJson
 
         $raw = curl_exec($ch);
         if ($raw === false) {
+            if (curl_errno($ch) === CURLE_OPERATION_TIMEDOUT) {
+                throw new ProviderError(ProviderError::TIMEOUT, 'curl: ' . curl_error($ch));
+            }
             throw new ProviderError(ProviderError::NETWORK, 'curl: ' . curl_error($ch));
         }
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
@@ -76,6 +96,7 @@ final class HttpJson
             $status === 429 => ProviderError::RATE_LIMITED,
             $status === 401 || $status === 403 => ProviderError::AUTH,
             $status === 404 => ProviderError::MODEL_UNAVAILABLE,
+            $status === 503 => ProviderError::BUSY,
             $status >= 500 => ProviderError::NETWORK,
             default => ProviderError::BAD_RESPONSE,
         };
