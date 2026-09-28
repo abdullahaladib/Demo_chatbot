@@ -74,7 +74,7 @@ account (`erp_ai_ro`) that has SELECT on those views and nothing else.**
 | MySQL root | Needed only for setup/import. The password is machine-specific and **not stored in the repo**; ask the owner. |
 | Web | `php yii serve localhost:8080` → http://localhost:8080 (the owner's; use :8081 for tests) |
 | Demo logins | ERP usernames `bimol`, `hr.demo`, `1005`, `1002`, `tanvir`, `1954` (listed in `config/params.php` `demoPeople`), password **`Demo@1234`**. Every in-service employee's login also accepts Demo@1234. |
-| AI | `config/ai.php`: provider `gemini`, model **`gemini-3.6-flash`**, temperature 0. **Key in `config/ai-local.php` (gitignored, one per device; copy `config/ai-local.php.example`).** Groq fallback `openai/gpt-oss-120b`, no key yet. |
+| AI | `config/ai.php`: provider `gemini`, model **`gemini-3.7-flash`**, temperature 0. **Key in `config/ai-local.php` (gitignored, one per device; copy `config/ai-local.php.example`).** Groq fallback `openai/gpt-oss-120b`, no key yet. |
 
 ## 4. Setting up a new device
 
@@ -331,7 +331,7 @@ generated data, and fails if it spots a key. Human docs: `erp_plugin/app/control
   partial), `app/views/ai_chatbot/api/ask.php` (endpoint), `public/assets/ai_chatbot/` (css/js).
 
 **Plug-in design** (`app/controllers/ai_chatbot/`, namespace `AiChatbot\`, autoloaded by `bootstrap.php`):
-- `config.php` holds settings (Gemini `gemini-3.6-flash`).
+- `config.php` holds settings (Gemini `gemini-3.7-flash`).
 - `config.local.php` holds the **secrets** and is never mirrored. It has the Gemini key, the `aiAccounts`
   `erp_training` → `erp_ai_plugin` password, and `adminDb` = erp_app (CLI only). Template: `config.local.php.example`.
 - Identity comes from the ERP session. `mhafuz=Active`, `user.id`, `user.group` and the tenant `db_*` keys come
@@ -380,6 +380,9 @@ generated data, and fails if it spots a key. Human docs: `erp_plugin/app/control
 ## Change log
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
+
+- 2026-09-28 (original Windows device) — Owner switched the model to **`gemini-3.7-flash`** in both `config/ai.php` (Yii
+  demo) and the ERP plug-in's `config.php`. No live AI test.
 
 - 2026-09-28 (original Windows device) — **Chatbot plugged into the company ERP clone** (section 13). Added the plug-in, the
   widget partial, the endpoint and the assets in D:\Workspace\app, plus two one-line hooks and a local-only

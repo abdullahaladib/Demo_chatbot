@@ -24,7 +24,7 @@ return [
             // Google now restricts gemini-2.5-* to accounts that used them before.
             // If you get a "model not found / not available" error, switch to
             // 'gemini-3.8-flash' (or 'gemini-3.5-flash-lite').
-            'model' => 'gemini-3.6-flash',
+            'model' => 'gemini-3.7-flash',
             'baseUrl' => 'https://generativelanguage.googleapis.com/v1beta',
             // Optional, model-specific. 2.5: ['thinkingBudget' => 0]  3.x: ['thinkingLevel' => 'low']
             'thinkingConfig' => null,

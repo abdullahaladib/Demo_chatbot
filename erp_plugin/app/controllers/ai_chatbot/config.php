@@ -13,7 +13,7 @@ return [
     'providers' => [
         'gemini' => [
             'type' => 'gemini',
-            'model' => 'gemini-3.6-flash',
+            'model' => 'gemini-3.7-flash',
             'baseUrl' => 'https://generativelanguage.googleapis.com/v1beta',
             'apiKey' => '',                 // config.local.php
         ],
