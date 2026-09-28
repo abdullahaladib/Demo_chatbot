@@ -228,11 +228,24 @@ The demo role switcher must be off outside demos.
 - Live Gemini (`gemini-3.8-flash`, since switched to 3.6 by the owner) was verified on demo questions #1–#3. #4 generated the correct
   `:dept` SQL, but it and #5 hit the free-tier 429 quota, so re-run `verify/demo` when the quota resets.
 - Suggested: add a Groq key as a demo-day fallback.
+- **PLANNING (2026-09-28): replace the demo DB with `trainingclouderp_training_db.sql`** (owner request; UI stays the same for
+  now; later the owner will supply a new UI, which must keep the floating chat widget on every signed-in page). Plan shown
+  to the owner; waiting for answers to its open questions before building. Dump facts: MariaDB 10.11 phpMyAdmin dump,
+  91 MB, 1288 tables, ~565k rows, no views/routines. HR core: personnel_basic_info (55 employees, 34 In Service; pk pbi_id;
+  dept_id -> `department`.DEPT_ID, NOT setup_department; desg_id -> designation; incharge_id / incharge_id_2 = line managers),
+  user_activity_management (76 logins, PBI_ID link; passwords 74 unsalted MD5 + 2 PLAINTEXT; `level` = module privilege,
+  52/76 are 5 "Supreme Administrator", so it is useless for tiers), hrm_leave_info (731), hrm_leave_type (12),
+  hrm_att_summary (daily, 18.9k), hrm_attendence_final (monthly), salary_info (51 rows, 25 with gross>0; has bank ac_no).
+  Data issues: dept heads never recorded; reporting chain has cycles (36 employees) + 1 self-incharge; CEO/MD are Not In
+  Service; the HRM Manager logins have no employee link; zero/1970 dates; leave rows for 9 missing employees. Import risks on
+  MySQL 8: 452 duplicate-value ENUMs, zero dates. **The dump is gitignored (PII + hashes; public repo). Never commit it.**
 
 ## Change log
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
 
+- 2026-09-28 (original Windows device) — Analysed trainingclouderp_training_db.sql and wrote the DB-replacement plan (see
+  Status). Gitignored the dump. No code or DB changes yet.
 - 2026-09-28 (original Windows device) — **Mistral switch ROLLED BACK at the owner's request** ("the mistral api is not
   working, go back to gemini"). Commit 6e6bd56 (Mistral primary, one OpenAI-compatible client, throttle, 429 backoff,
   per-user response cache, record/replay fixtures, verify/phase7) was undone by `git revert` (a9d7851); the code is still

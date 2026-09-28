@@ -38,3 +38,7 @@ tests/_support/_generated
 # demo project on fabricated data) so every device can pull and run. See CLAUDE.md.
 # The AI API key is NOT committed (repo is public; Google revokes leaked keys).
 /config/ai-local.php
+
+# Source database dumps: personal data + password hashes. The repo is PUBLIC - never commit these.
+*.sql.gz
+/trainingclouderp_training_db.sql
