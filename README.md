@@ -37,6 +37,7 @@ AI calls are plain `curl`. No LLM SDK, no vector database, no Node.
 9. [Demo script](#demo-script)
 10. [Verifying it yourself](#verifying-it-yourself)
 11. [Where things live](#where-things-live)
+12. [The same chatbot inside the company ERP](#the-same-chatbot-inside-the-company-erp)
 
 ---
 
@@ -506,3 +507,23 @@ views, `OR 1=1`, missing `:me` and `DELETE`. All are refused or neutralised by t
 | [views/layouts/_chat_widget.php](views/layouts/_chat_widget.php), [web/js/chat-widget.js](web/js/chat-widget.js), [web/css/chat-widget.css](web/css/chat-widget.css) | The floating chat widget, on every signed-in page |
 | [controllers/SecurityTestController.php](controllers/SecurityTestController.php) | Hand-written-SQL test bench (no AI) |
 | [commands/VerifyController.php](commands/VerifyController.php) | `php yii verify/*` acceptance checks |
+
+## The same chatbot inside the company ERP
+
+[erp_plugin/](erp_plugin/) packages this chatbot as a plug-in for the company's real ERP (raw PHP, no
+framework). It is a mirror of the files installed in the ERP. The ERP gets two one-line hooks and shows a floating
+"ERP Assistant" in its own colours on every signed-in page.
+
+The design is the same, but access goes **beyond HR**. A user may query the tables of the ERP modules
+enabled for their login (accounts, sales, purchase, inventory, CRM, and so on). The tables used by each module
+are found by scanning the ERP source.
+
+The four layers still apply:
+
+1. **The MySQL account.** It has column-level grants, so passwords, bank accounts, NID and DOB are never readable.
+2. **Module mirror.** The user can only reach their own modules' tables. Salary and payroll are HR and executives only.
+3. **Server-bound scope.** Company scope (`group_for`) and `:me` / `:dept` are bound from the session.
+4. **The validator.**
+
+The AI writes its own SQL after looking up the exact columns with a `describeTables` tool. There are no stored
+queries. Install and security details: [erp_plugin/app/controllers/ai_chatbot/README.md](erp_plugin/app/controllers/ai_chatbot/README.md).

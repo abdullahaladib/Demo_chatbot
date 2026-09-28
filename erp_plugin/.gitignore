@@ -1,0 +1,5 @@
+# Never commit plug-in secrets or generated tenant data
+config.local.php
+data/catalog.json.php
+data/grants.sql.php
+data/*.log*

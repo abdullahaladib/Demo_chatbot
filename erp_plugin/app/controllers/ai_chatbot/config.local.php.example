@@ -1,0 +1,17 @@
+<?php
+/**
+ * AI Chatbot plug-in - LOCAL SECRETS. Copy to config.local.php on each server and fill in.
+ * config.local.php must never be committed. It is merged over config.php.
+ */
+return [
+    'providers' => [
+        'gemini' => ['apiKey' => ''],   // https://aistudio.google.com/apikey
+        // 'groq' => ['apiKey' => ''],
+    ],
+    // One read-only MySQL account per tenant database (created by install/apply_grants.php).
+    'aiAccounts' => [
+        'erp_training' => ['username' => 'erp_ai_plugin', 'password' => ''],
+    ],
+    // Used ONLY by the CLI installer/tests (build catalogue, apply grants, tests) - not by web requests.
+    'adminDb' => ['username' => 'erp_app', 'password' => '', 'database' => 'erp_training'],
+];

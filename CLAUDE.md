@@ -68,9 +68,9 @@ account (`erp_ai_ro`) that has SELECT on those views and nothing else.**
 | PHP | 8.5 at `C:\php` (on PATH) |
 | Composer | `C:\ProgramData\ComposerSetup\bin\composer.phar`; may not be on PATH, run `php C:/ProgramData/ComposerSetup/bin/composer.phar ...` |
 | MySQL | 8.0.46 service `MySQL80`, client `C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe`. Use `--host=127.0.0.1` (PowerShell mangles `-h127.0.0.1`). `lower_case_table_names=1`. |
-| Database | **`erp_training`**: the imported training ERP (1288 tables) plus our `ai_*` tables and views. (`erp_demo`, the old self-made demo DB, still exists but is unused.) |
+| Database | **`erp_training`**: the imported training ERP (1288 tables) plus our `ai_*` tables and views. (`erp_demo`, the old self-made demo DB, still exists but is unused.) `erp_master`: local master DB for the ERP clone (cid `training` → erp_training). |
 | Source dump | `trainingclouderp_training_db.sql` (91 MB, MariaDB 10.11) in the project root. **Gitignored: PII + password hashes, and the repo is public. Never commit it; copy it between devices by hand.** |
-| MySQL accounts | `erp_app` (ALL on erp_training), `erp_ai_ro` (SELECT on the 25 v_* views only). Both exist for `@localhost` and `@127.0.0.1`. The app connects via `127.0.0.1`. Passwords are in `config/db-local.php`. |
+| MySQL accounts | `erp_app` (ALL on erp_training + erp_master), `erp_ai_ro` (SELECT on the 25 v_* views only), `erp_ai_plugin` (ERP plug-in: column-level SELECT on 681 catalogued tables + 16 views; password only in the ERP clone's gitignored-by-design `config.local.php`). Both exist for `@localhost` and `@127.0.0.1`. The app connects via `127.0.0.1`. Passwords are in `config/db-local.php`. |
 | MySQL root | Needed only for setup/import. The password is machine-specific and **not stored in the repo**; ask the owner. |
 | Web | `php yii serve localhost:8080` → http://localhost:8080 (the owner's; use :8081 for tests) |
 | Demo logins | ERP usernames `bimol`, `hr.demo`, `1005`, `1002`, `tanvir`, `1954` (listed in `config/params.php` `demoPeople`), password **`Demo@1234`**. Every in-service employee's login also accepts Demo@1234. |
@@ -238,6 +238,12 @@ groups under 5 (`MIN_GROUP` in the migration).
 - **Collations**: ERP tables are utf8mb4_unicode_ci and the connection is utf8mb4_0900_ai_ci. In views,
   compare codes numerically (`CAST(x AS UNSIGNED)`), not `CAST(id AS CHAR) = col` (error 1267).
 - MySQL sorts ENUM columns by definition order, not alphabetically.
+- **A view keeps the collation of the connection that CREATED it.** Yii's `charset => utf8mb4` sends
+  `SET NAMES utf8mb4`, which gives the server default `utf8mb4_0900_ai_ci`. A bare PDO DSN `charset=utf8mb4`
+  gives `general_ci`. Views created under general_ci made Yii's `status = 'Pending'` queries fail with 1267
+  (verify/all 146/151, 2026-09-28). The ERP plug-in's `Db` now also runs `SET NAMES utf8mb4`. Check with
+  `SELECT COLLATION_CONNECTION, COUNT(*) FROM information_schema.VIEWS WHERE TABLE_SCHEMA='erp_training' GROUP BY 1`
+  (expect only 0900_ai_ci).
 - **Gemini 2.5 is closed to new users** ("no longer available to new users") → use `gemini-3.x-flash`.
 - **Free-tier limits**: 429 (quota) and 503 (high demand) are common. `HttpJson` retries twice
   (after 2s, then 5s). If you're still throttled, wait, or switch `provider` to `groq` (needs a key).
@@ -270,24 +276,10 @@ The demo role switcher must be off outside demos.
   DB yet**: run `verify/demo` only when the owner asks.
 - Scope is HR only (employees, leave, attendance, salary, directory). Other ERP modules (accounts, sales,
   CRM, hotel...) are possible later phases: each needs views + access-map entries + tests.
-- **PLANNING (2026-09-28): plug the chatbot into the company ERP** at `D:\Workspace\app` (a clone of the real ERP;
-  NOT a git repo; ~16.8k PHP files; the owner may change it but its structure and coding patterns must be kept). Findings:
-  raw PHP (short tags `<?` need short_open_tag=On), no framework/Composer. Entry: app/index.php → app/app/views/auth/masters/
-  index.php (login: company id `cid` + username + MD5 password) → home.php (standalone dashboard, module cards). MULTI-TENANT:
-  a master DB (company_info + database_info) maps cid → tenant DB creds kept in the session (db_user/db_pass/db_name); the
-  training dump is one tenant DB. `controllers/config/db_master_config.php` tries a REMOTE production host ("central") BEFORE
-  local, so local runs must not use it as-is. Session keys: `$_SESSION['user']['id']` = user_activity_management.user_id,
-  ['level'], ['group'] (group_for), ['depot'] (warehouse), `mhafuz=Active` = signed in. Module pages: require layout.top.php
-  → content → require layout.bottom.php, which wraps everything in controllers/routing/inc.main_layout.php (one `</body>`
-  for both templates) → a single include there plus one in home.php reaches every signed-in view. AJAX endpoints = plain files
-  in views/<module>/ that require default_values.php + layout.top.php and use helpers (db_query, find_a_field...; mysqli $conn).
-  Theme: home.php uses --primary #2563eb, --secondary #7c3aed, sidebar #101828, bg #f3f6fb, Inter, Font Awesome 6; module
-  pages (hrm_theme.css.php) use --navy (var(--theme-color-bgc), per company), --teal #1f8fae, Sora/Inter, and dark mode via
-  html[data-theme=dark]. JS/CSS come from SERVER_CDN https://erpengine.cloud/npm/ (jQuery 3.7, Bootstrap, select2...).
-  ERP modules: user_module_manage (48, 41 active: HRIS, Financial Accounting, Procurement, Inventory, Sales, L/C, CRM,
-  Loan, Fixed Asset, Rental, Property, KPI...); per-user access in user_module_define (98 users, 600 enabled grants).
-  Accounting data: journal 5.2k, journal_item 4k, secondary_journal 7.9k, accounts_ledger 342, sub_ledger 174,
-  sub_sub_ledger 410, general_sub_ledger 210, ledger_group 113.
+- **DONE (2026-09-28): the chatbot is plugged into the company ERP clone** at `D:\Workspace\app`. See section 13.
+  It passes 68/68 offline tests (`tests/run_tests.php`, scripted model). The widget was checked in headless Edge on
+  the dashboard and the Accounts module with a stubbed fetch. **No live AI call has been made in the ERP yet**; run one
+  only when the owner asks.
 - **Coming later (owner):** a new UI supplied by the boss. It must keep the floating Messenger-style chat
   widget on every signed-in page. Wait for the owner to say what goes where.
 - Suggested: add a Groq key as a demo-day fallback.
@@ -309,9 +301,91 @@ php yii setup/database <mysql-root-password>
 ```
 Tell the owner before resetting `main` itself; prefer a branch from the tag.
 
+## 13. ERP plug-in (the chatbot inside the company ERP)
+
+The same idea as the Yii demo, packaged as a plug-in for the company's real ERP. The ERP is raw
+PHP with no framework. The live copy is in the ERP clone; **`erp_plugin/` in this repo is a mirror**
+(the ERP folder is not a git repo). Edit the plug-in in the ERP clone, then run
+`bash erp_plugin/sync_from_erp.sh`. The script copies only plug-in files, never secrets or
+generated data, and fails if it spots a key. Human docs: `erp_plugin/app/controllers/ai_chatbot/README.md`.
+
+**Run the ERP locally:**
+- Start it: `cd /d/Workspace/app && php -d extension=mysqli -d extension=gd -d short_open_tag=On -d display_errors=0 -d log_errors=1 -d error_log=/d/Workspace/app/php_errors_local.log -S 127.0.0.1:8090 -t /d/Workspace/app`
+  - mysqli is OFF in `C:\php\php.ini`; enable it per command and don't edit php.ini.
+- Open http://training.localhost:8090. The subdomain is the company id, which some print views need.
+- Log in with company id `training`, a username, and `Demo@1234`:
+  - `tanvir`: employee; Accounts, Procurement, Inventory, Sales, Production, CRM...
+  - `1005`: dept head; Accounts, Procurement, Inventory, Sales.
+  - `1002`: manager.
+  - `bimol`: ceo, 19 modules.
+  - `hr.demo`: hr; HRIS modules plus salary.
+  - Avoid `1954`: two logins share that username, so the ERP rejects it.
+
+**What changed in the ERP clone.** Originals are backed up in `D:\Workspace\app_originals\`.
+**Never** copy those into a repo: `db_master_config.php` holds real production credentials.
+- `app/controllers/config/db_master_config.php` points "central" and "local" at localhost `erp_master`
+  (a local master DB: company_info `training` + database_info → erp_training via erp_app).
+- One line before `</body>` in `app/controllers/routing/inc.main_layout.php` (every module page) and in
+  `app/views/auth/masters/home.php` (the dashboard): `require_once SERVER_CORE."routing/inc.ai_chatbot.php"`.
+- Added: `app/controllers/ai_chatbot/` (the plug-in), `app/controllers/routing/inc.ai_chatbot.php` (widget
+  partial), `app/views/ai_chatbot/api/ask.php` (endpoint), `public/assets/ai_chatbot/` (css/js).
+
+**Plug-in design** (`app/controllers/ai_chatbot/`, namespace `AiChatbot\`, autoloaded by `bootstrap.php`):
+- `config.php` holds settings (Gemini `gemini-3.6-flash`).
+- `config.local.php` holds the **secrets** and is never mirrored. It has the Gemini key, the `aiAccounts`
+  `erp_training` → `erp_ai_plugin` password, and `adminDb` = erp_app (CLI only). Template: `config.local.php.example`.
+- Identity comes from the ERP session. `mhafuz=Active`, `user.id`, `user.group` and the tenant `db_*` keys come
+  from the login. Tier is decided the same way as `RoleResolver` (ai_role_assignment > line manager > employee).
+  A login without an in-service employee gets tier `none`.
+- **Access mirrors the ERP modules.** `install/build_catalog.php` works out which tables each module uses by
+  scanning `views/<module_file>/` PHP for table names:
+  - it keeps 681 tables (84 shared by 6+ modules) and drops empty, backup, excluded and unused ones;
+  - it hides 130 sensitive columns and marks salary-type tables confidential (hr/ceo only);
+  - HR personnel tables need an HR admin module;
+  - the result is written to `data/catalog.json.php` (about 4 minutes).
+- A user may query the tables of the modules enabled for them in `user_module_define`, plus shared tables and
+  their tier's `v_*` views (`Catalog::VIEWS`, 16 of the 25).
+- The AI's tools: `getUserRole`, `describeTables` (allowed tables only: columns, joins, notes, row counts; notes in
+  `data/table_notes.php`) and `runReadOnlyQuery`. It writes its own SQL for any module: vouchers, ledgers,
+  sales, stock...
+- **Four layers:**
+  1. MySQL `erp_ai_plugin` has column-level SELECT on the catalogued tables and SELECT on 16 views
+     (`install/apply_grants.php <rootpw>`).
+  2. The module-mirror policy (`AccessPolicy`).
+  3. Bound scope: `:me`/`:dept` for views. Tables with `group_for` are wrapped as
+     `(SELECT <allowed cols> FROM t WHERE group_for = <session company>)`.
+  4. `SqlValidator`, ported from the Yii one, plus a `SELECT *` ban. Retryable mistakes go back to the model
+     as hints; security refusals end the turn.
+- Audit: `ai_chat_audit_log` gains an `erp_user_id` column. The plug-in writes employee_id = pbi_id and
+  erp_user_id = the ERP login.
+- `install/install_schema.php` creates the ai_* tables and the views; `install/views.php` is a verbatim port of
+  training migration 0003 (**keep them in step**).
+- After `php yii setup/database` (it drops erp_training), re-run the plug-in installers: install_schema, then
+  build_catalog, then apply_grants.
+- `data/` is inside the web root:
+  - every file written there starts with `<?php http_response_code(404); exit; ?>` (constant `AI_CHATBOT_FILE_GUARD`);
+  - `.htaccess` denies the folder on Apache;
+  - installers and tests return 404 unless run from the CLI.
+- Widget:
+  - a vanilla-JS floating button on every signed-in page; history in sessionStorage `erp.aichat.v1.<proj>.<user>`;
+  - CSRF via the ERP's `$_SESSION['csrf_token']`;
+  - colours from the ERP's CSS variables (`--navy`/`--teal` on module pages, `--primary`/`--secondary` on the
+    dashboard, dark mode followed);
+  - a "host-page armour" block wins back fonts and inputs from the ERP's global `!important` rules;
+  - suggestion chips per module in `data/suggestions.php` are only examples: no hard-coded SQL behind them.
+- Tests: `cd /d/Workspace/app && php app/controllers/ai_chatbot/tests/run_tests.php`. It checks identity, policy,
+  validator, MySQL grants, gateway, describeTables, the prompt, ChatService with a scripted model, and HTTP guards
+  (401/405/403, identity from the session). The HTTP part needs the :8090 server; it is skipped otherwise.
+
 ## Change log
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
+
+- 2026-09-28 (original Windows device) — **Chatbot plugged into the company ERP clone** (section 13). Added the plug-in, the
+  widget partial, the endpoint and the assets in D:\Workspace\app, plus two one-line hooks and a local-only
+  db_master_config. Built `erp_master`, the catalogue (681 tables) and the `erp_ai_plugin` column grants. Demo logins
+  get Demo@1234. `ai_chat_audit_log.erp_user_id` added. Mirrored into `erp_plugin/` (with sync script). Tests 68/68 offline;
+  headless-Edge widget check with a stubbed fetch. No live AI calls.
 
 - 2026-09-28 (original Windows device) — Analysed the company ERP clone at D:\Workspace\app for plugging in the chatbot
   (see Status). No changes made yet; plan shown to the owner.

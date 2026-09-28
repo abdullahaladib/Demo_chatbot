@@ -1,0 +1,176 @@
+/* =============================================================================
+   AI Chatbot plug-in - floating chat widget. Everything is scoped under #aic-widget.
+   Colours come from the ERP's own CSS variables, with fallbacks:
+     module pages (hrm_theme.css.php): --navy (per-company theme colour), --teal, --panel,
+                                       --text, --line, --bg, --muted, dark mode via
+                                       html[data-theme="dark"]
+     home dashboard (home.php):        --primary, --secondary, --surface, --text-primary,
+                                       --border, --page-bg, --text-muted
+   ============================================================================= */
+
+#aic-widget {
+    --aic-a: var(--navy, var(--primary, #2563eb));
+    --aic-b: var(--teal, var(--secondary, #7c3aed));
+    --aic-panel: var(--panel, var(--surface, #ffffff));
+    --aic-text: var(--text, var(--text-primary, #101828));
+    --aic-muted: var(--muted, var(--text-muted, #667085));
+    --aic-line: var(--line, var(--border, #e4e7ec));
+    --aic-soft: var(--bg, var(--page-bg, #f3f6fb));
+    --aic-w: 390px;
+    --aic-h: 580px;
+    --aic-gap: 22px;
+    position: fixed;
+    right: var(--aic-gap);
+    bottom: calc(var(--aic-gap) + env(safe-area-inset-bottom, 0px));
+    z-index: 2147483000; /* above ERP sidebars (1200), topbars, bootstrap modals (1055) */
+    font-family: Inter, "Segoe UI", Arial, sans-serif;
+    font-size: 13.5px;
+    line-height: 1.45;
+    color: var(--aic-text);
+    text-align: left;
+}
+#aic-widget.aic-expanded { --aic-w: 660px; --aic-h: 740px; }
+#aic-widget *, #aic-widget *::before, #aic-widget *::after { box-sizing: border-box; }
+
+/* ---- floating button ---- */
+#aic-widget .aic-fab {
+    position: relative; display: flex; align-items: center; justify-content: center;
+    width: 58px; height: 58px; margin: 0 0 0 auto; padding: 0;
+    border: 0; border-radius: 50%; cursor: pointer; color: #fff;
+    background: linear-gradient(135deg, var(--aic-a), var(--aic-b));
+    box-shadow: 0 10px 26px rgba(16, 24, 40, .28);
+    transition: transform .15s ease, box-shadow .15s ease;
+}
+#aic-widget .aic-fab:hover { transform: translateY(-2px) scale(1.04); box-shadow: 0 14px 30px rgba(16, 24, 40, .34); }
+#aic-widget .aic-fab:focus-visible { outline: 3px solid color-mix(in srgb, var(--aic-a) 45%, transparent); outline-offset: 3px; }
+#aic-widget .aic-fab i { font-size: 23px; position: absolute; transition: opacity .15s ease, transform .2s ease; }
+#aic-widget .aic-fab .aic-ico-close { opacity: 0; transform: rotate(-90deg); }
+#aic-widget.aic-open .aic-fab .aic-ico-chat { opacity: 0; transform: rotate(90deg); }
+#aic-widget.aic-open .aic-fab .aic-ico-close { opacity: 1; transform: none; }
+#aic-widget .aic-unread { position: absolute; top: 3px; right: 3px; width: 14px; height: 14px; border-radius: 50%; background: #e11d48; border: 2px solid #fff; }
+#aic-widget [hidden] { display: none !important; }
+
+/* ---- popup ---- */
+#aic-widget .aic-panel {
+    position: absolute; right: 0; bottom: 72px;
+    width: min(var(--aic-w), calc(100vw - 2 * var(--aic-gap)));
+    height: min(var(--aic-h), calc(100vh - 120px));
+    display: flex; flex-direction: column; overflow: hidden;
+    background: var(--aic-panel); border: 1px solid var(--aic-line); border-radius: 18px;
+    box-shadow: 0 20px 45px rgba(16, 24, 40, .22);
+    animation: aic-pop .18s ease-out; transition: width .2s ease, height .2s ease;
+}
+@keyframes aic-pop { from { opacity: 0; transform: translateY(12px) scale(.97); } to { opacity: 1; transform: none; } }
+
+#aic-widget .aic-header {
+    display: flex; align-items: center; gap: 10px; padding: 11px 10px 11px 14px; flex: none; color: #fff;
+    background: linear-gradient(125deg, var(--aic-a), var(--aic-b));
+}
+#aic-widget .aic-avatar { width: 36px; height: 36px; border-radius: 12px; flex: none; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, .18); font-size: 16px; }
+#aic-widget .aic-title { flex: 1; min-width: 0; line-height: 1.25; }
+#aic-widget .aic-title b { display: block; font-size: 14px; font-weight: 700; }
+#aic-widget .aic-subtitle { font-size: 11px; opacity: .9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#aic-widget .aic-badge { display: inline-block; padding: 1px 7px; margin-left: 3px; border-radius: 20px; background: rgba(255, 255, 255, .22); font-size: 10px; font-weight: 700; }
+#aic-widget .aic-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+#aic-widget .aic-icon-btn { width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; cursor: pointer; color: #fff; background: transparent; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+#aic-widget .aic-icon-btn:hover { background: rgba(255, 255, 255, .18); }
+#aic-widget .aic-sql-toggle { display: flex; align-items: center; gap: 4px; margin: 0 4px 0 0; padding: 3px 7px; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer; user-select: none; color: #fff; }
+#aic-widget .aic-sql-toggle:hover { background: rgba(255, 255, 255, .18); }
+#aic-widget .aic-sql-toggle input { margin: 0; width: auto; height: auto; cursor: pointer; }
+
+/* ---- messages ---- */
+#aic-widget .aic-messages { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: var(--aic-soft); }
+#aic-widget .aic-msg { display: flex; }
+#aic-widget .aic-msg-user { justify-content: flex-end; }
+#aic-widget .aic-bubble { max-width: 88%; min-width: 0; padding: 9px 12px; border-radius: 16px; overflow-wrap: anywhere; background: var(--aic-panel); border: 1px solid var(--aic-line); color: var(--aic-text); }
+#aic-widget.aic-expanded .aic-bubble { max-width: 94%; }
+#aic-widget .aic-msg-user .aic-bubble { color: #fff; border: 0; border-bottom-right-radius: 5px; background: linear-gradient(125deg, var(--aic-a), var(--aic-b)); }
+#aic-widget .aic-msg-bot .aic-bubble { border-bottom-left-radius: 5px; }
+#aic-widget .aic-bubble p { margin: 0 0 6px; }
+#aic-widget .aic-bubble p:last-child { margin-bottom: 0; }
+#aic-widget .aic-bubble ul, #aic-widget .aic-bubble ol { margin: 0 0 6px; padding-left: 18px; }
+#aic-widget .aic-bubble code { font-family: "JetBrains Mono", Consolas, monospace; font-size: 11.5px; }
+#aic-widget .aic-denied { color: #b42318; background: #fef3f2; border-color: #fecdca; font-weight: 500; }
+#aic-widget .aic-error { background: #fffaeb; border-color: #fedf89; }
+#aic-widget .aic-muted { color: var(--aic-muted); }
+
+#aic-widget .aic-table { max-height: 260px; overflow: auto; margin-top: 8px; border: 1px solid var(--aic-line); border-radius: 10px; background: var(--aic-panel); }
+#aic-widget .aic-table table { width: 100%; border-collapse: collapse; font-size: 12px; font-weight: 400; color: var(--aic-text); }
+#aic-widget .aic-table th { position: sticky; top: 0; background: var(--aic-soft); text-transform: capitalize; font-weight: 700; white-space: nowrap; }
+#aic-widget .aic-table th, #aic-widget .aic-table td { padding: 5px 10px; border-bottom: 1px solid var(--aic-line); text-align: left; white-space: nowrap; }
+#aic-widget .aic-table .aic-num { text-align: right; }
+#aic-widget .aic-rowcount { margin-top: 3px; font-size: 11px; color: var(--aic-muted); }
+
+/* "SQL" toggle: the machinery is hidden unless it is on */
+#aic-widget .aic-machinery { display: none; margin-top: 8px; padding-top: 7px; border-top: 1px dashed var(--aic-line); font-size: 11.5px; font-weight: 400; color: var(--aic-text); }
+#aic-widget.aic-show-sql .aic-machinery { display: block; }
+#aic-widget .aic-machinery pre { margin: 3px 0 5px; padding: 6px 8px; white-space: pre-wrap; word-break: break-word; font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px; background: var(--aic-soft); border: 1px solid var(--aic-line); border-radius: 7px; color: var(--aic-text); }
+#aic-widget .aic-trace { margin: 4px 0; padding-left: 18px; }
+#aic-widget .aic-query { margin-top: 6px; }
+#aic-widget .aic-path { display: inline-block; padding: 1px 7px; border-radius: 20px; font-size: 10px; font-weight: 800; color: #fff; }
+#aic-widget .aic-path-info { background: #0891b2; }
+#aic-widget .aic-path-data { background: #059669; }
+#aic-widget .aic-path-denied { background: #dc2626; }
+#aic-widget .aic-path-error { background: #d97706; }
+#aic-widget .aic-q-ok { color: #059669; } #aic-widget .aic-q-denied { color: #dc2626; } #aic-widget .aic-q-error { color: #d97706; }
+
+#aic-widget .aic-typing span { display: inline-block; width: 7px; height: 7px; margin: 0 2px; border-radius: 50%; background: var(--aic-muted); animation: aic-blink 1.2s infinite both; }
+#aic-widget .aic-typing span:nth-child(2) { animation-delay: .2s; } #aic-widget .aic-typing span:nth-child(3) { animation-delay: .4s; }
+@keyframes aic-blink { 0%, 80%, 100% { opacity: .2; } 40% { opacity: 1; } }
+
+/* ---- footer ---- */
+#aic-widget .aic-footer { flex: none; padding: 9px; border-top: 1px solid var(--aic-line); background: var(--aic-panel); }
+#aic-widget .aic-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 7px; scrollbar-width: thin; }
+#aic-widget .aic-chip { flex: none; padding: 4px 11px; border: 1px solid var(--aic-line); border-radius: 999px; background: var(--aic-soft); color: var(--aic-text); font-size: 11.5px; white-space: nowrap; cursor: pointer; }
+#aic-widget .aic-chip:hover { border-color: var(--aic-a); color: var(--aic-a); }
+#aic-widget .aic-form { display: flex; gap: 7px; margin: 0; }
+#aic-widget .aic-input { flex: 1; min-width: 0; height: 40px; padding: 0 14px; border: 1px solid var(--aic-line); border-radius: 999px; outline: none; font-size: 13px; color: var(--aic-text); background: var(--aic-panel); }
+#aic-widget .aic-input:focus { border-color: var(--aic-a); box-shadow: 0 0 0 3px color-mix(in srgb, var(--aic-a) 18%, transparent); }
+#aic-widget .aic-send { width: 40px; height: 40px; flex: none; padding: 0; border: 0; border-radius: 50%; cursor: pointer; color: #fff; background: linear-gradient(135deg, var(--aic-a), var(--aic-b)); display: flex; align-items: center; justify-content: center; font-size: 15px; }
+#aic-widget .aic-send:disabled { opacity: .5; cursor: default; }
+
+/* ---- phones: full screen ---- */
+@media (max-width: 575.98px) {
+    #aic-widget { --aic-gap: 14px; }
+    #aic-widget.aic-open .aic-panel { position: fixed; inset: 0; width: auto; height: auto; border-radius: 0; border: 0; }
+    #aic-widget.aic-open .aic-fab { display: none; }
+    #aic-widget .aic-expand-btn { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    #aic-widget .aic-panel, #aic-widget .aic-fab, #aic-widget .aic-fab i { animation: none; transition: none; }
+}
+
+/* ---- host-page armour ----
+   Module pages force typography with !important on bare elements (theme_responsib_new_custom.php:
+   span/p/a/table/label/input/button font-size, font-weight 500, font-family) and hrm_theme.css.php
+   forces input background/border and label colour. Win those back inside the widget only. */
+#aic-widget p, #aic-widget span, #aic-widget a, #aic-widget b, #aic-widget strong, #aic-widget em,
+#aic-widget table, #aic-widget tr, #aic-widget td, #aic-widget th, #aic-widget ul, #aic-widget ol, #aic-widget li,
+#aic-widget label, #aic-widget input, #aic-widget button, #aic-widget code, #aic-widget pre {
+    font-family: inherit !important; font-size: inherit !important; font-weight: inherit !important; letter-spacing: normal;
+}
+#aic-widget code, #aic-widget pre { font-family: "JetBrains Mono", Consolas, monospace !important; }
+#aic-widget b, #aic-widget strong, #aic-widget .aic-title b, #aic-widget .aic-table th, #aic-widget .aic-query > b { font-weight: 700 !important; }
+#aic-widget .aic-badge, #aic-widget .aic-path { font-size: 10px !important; font-weight: 700 !important; }
+#aic-widget .aic-path { font-weight: 800 !important; }
+#aic-widget .aic-subtitle { font-size: 11px; }
+#aic-widget .aic-table table { font-size: 12px !important; }
+#aic-widget .aic-table tr { background: transparent; }
+#aic-widget .aic-machinery pre, #aic-widget .aic-bubble code { font-size: 11px !important; }
+#aic-widget .aic-sql-toggle { font-size: 11px !important; font-weight: 700 !important; color: #fff !important; }
+#aic-widget .aic-sql-toggle input { width: 13px !important; height: 13px !important; padding: 0; border: 0 !important; background: none !important; accent-color: #fff; }
+#aic-widget .aic-chip { font-size: 11.5px !important; }
+#aic-widget .aic-icon-btn { font-size: 14px !important; }
+#aic-widget .aic-send { font-size: 15px !important; }
+#aic-widget input.aic-input {
+    width: auto; font-size: 13px !important; font-weight: 400 !important;
+    color: var(--aic-text) !important; background: var(--aic-panel) !important;
+    border: 1px solid var(--aic-line) !important; border-radius: 999px; padding: 0 14px; outline: none;
+}
+#aic-widget input.aic-input:focus { border-color: var(--aic-a) !important; }
+#aic-widget input.aic-input::placeholder { color: var(--aic-muted) !important; }
+#aic-widget .aic-title b { font-size: 14px !important; }
+#aic-widget { font-weight: 400; }
+#aic-widget input.aic-input { border-radius: 999px !important; height: 40px !important; outline: none !important; }
+#aic-widget input.aic-input:focus { outline: none !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--aic-a) 18%, transparent); }
+#aic-widget code, #aic-widget pre { font-variant-ligatures: none; }

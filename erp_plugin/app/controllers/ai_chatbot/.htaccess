@@ -1,0 +1,9 @@
+# AI Chatbot plug-in: nothing in here is meant to be requested directly (the ERP includes
+# these files server-side). Deny all web access - config, catalogue, log, installer, tests.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>
