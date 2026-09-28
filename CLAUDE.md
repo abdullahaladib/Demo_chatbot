@@ -71,7 +71,7 @@ account (`erp_ai_ro`) that has SELECT on those views and nothing else.**
 | MySQL root | Needed only for setup. The password is machine-specific and **not stored in the repo**; ask the owner. |
 | Web | `php yii serve localhost:8080` → http://localhost:8080 |
 | Demo logins | 10 users `*@demo.local`, all with password `Demo@1234`. Use the "Switch user" menu to change identity. |
-| AI | `config/ai.php`: provider **`mistral`**, model **`ministral-14b-latest`** (the free tier excludes large/medium/small), `minIntervalMs` 2100, temperature 0, mode `live`, cache on. Fallbacks: `gemini` (`gemini-3.6-flash`) and `groq` (`openai/gpt-oss-120b`, no key yet). **Keys in `config/ai-local.php` (gitignored, one per device; copy `config/ai-local.php.example`).** |
+| AI | `config/ai.php`: provider `gemini`, model **`gemini-3.6-flash`** (owner switched from 3.8 on 2026-09-28), temperature 0. **Key in `config/ai-local.php` (gitignored, one per device; copy `config/ai-local.php.example`).** Groq fallback `openai/gpt-oss-120b`, no key yet. |
 
 ## 4. Setting up a new device
 
@@ -146,9 +146,7 @@ refusal wording). Both `SqlValidator` and `PromptBuilder` read it.
 | `migrations/m260927_000004_seed_demo_data.php` | Seed data: dates relative to run day, `mt_srand` fixed |
 | `migrations/m260927_000005_create_role_views.php` | The 20 views |
 | `components/ai/` | AccessMap, SqlValidator, RejectedQuery, ValidationResult, QueryExecutor, QueryFailed, QueryGateway, PromptBuilder, ChatService |
-| `components/ai/provider/` | LlmProvider interface; **OpenAiCompatibleProvider (ONE class for Mistral + Groq; options toolMessageName/extraBody)**; GeminiProvider (native); ProviderFactory (client chosen by config `type`, transport by `mode`); Transport interface: HttpJson (curl + Throttle + 429/503 exponential retry, 3 attempts), RecordingTransport / ReplayTransport + FixtureStore (fixtures, never headers), StubTransport + ScriptedProvider (tests only); ProviderError (safe user messages) |
-| `components/ai/ResponseCache.php` | Answer cache (Yii FileCache in runtime/ai-cache), key = user id + role + normalised question + provider/model + data version. Clear: `php yii ai-cache/clear` (`commands/AiCacheController.php`) |
-| `tests/fixtures/ai/mistral/` | Recorded real Mistral responses for the 5 demo questions (replay mode) |
+| `components/ai/provider/` | LlmProvider interface, GeminiProvider, OpenAiCompatibleProvider (Groq), ScriptedProvider (tests), ProviderFactory, HttpJson (curl), ProviderError |
 | `components/TestHttpClient.php` | Cookie+CSRF curl client used by the verify commands |
 | `controllers/SiteController.php` | Login, logout, `switch-user` (POST+CSRF, gated by param) |
 | `controllers/ChatController.php` | `index` (the "Demo Chatbot Testing Interface" dashboard, the default route), `ask` (POST JSON), `audit` (hr/ceo see all, others their own) |
@@ -176,15 +174,13 @@ refusal wording). Both `SqlValidator` and `PromptBuilder` read it.
 
 ## 8. Testing
 
-- `php yii verify/all` runs 177 checks across phases 1–7 and needs a running server. Use a temporary
+- `php yii verify/all` runs 149 checks across phases 1–6 and needs a running server. Use a temporary
   one: `php yii serve localhost:8081` plus `php yii verify/all --baseUrl=http://localhost:8081`, then
   stop it. **No AI calls**: phase 5 uses `ScriptedProvider` (including a malicious model), and its one HTTP
   `chat/ask` check sends an over-long question that is rejected before the AI. For a hard guarantee, move
   `config/ai-local.php` aside while testing and put it back afterwards.
-- `php yii verify/demo` runs the 5 demo questions live (the cache is bypassed; `--useCache=1` allows it). It uses about 3 API
-  calls per data question. **Only when the owner explicitly asks.** `--aiMode=record` re-records the fixtures.
-- `php yii verify/demo --aiMode=replay` runs the same 5 questions from the fixtures: no network, no key, about 40 ms each.
-  Use it freely. `verify/phase7` tests the real provider clients against canned wire JSON (StubTransport).
+- `php yii verify/demo` runs the 5 demo questions live. It uses about 3 API calls per data
+  question. **Only when the owner explicitly asks.**
 - Browser UI checks: headless Edge
   (`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe --headless=new --screenshot`)
   on a temporary same-origin harness page in `web/` (for example `web/_uitest.html`). It logs in by POSTing to
@@ -196,14 +192,9 @@ refusal wording). Both `SqlValidator` and `PromptBuilder` read it.
 
 ## 9. Known issues / gotchas
 
-- **Mistral free tier** (checked 2026-09-28 via `x-ratelimit-*` response headers): mistral-large-latest gives 403 "not
-  available in your subscription tier"; mistral-medium/small and magistral have `x-ratelimit-limit-req-minute: 0`
-  (always 429). Allowed: ministral-14b-latest 30/min (default), codestral-latest 125/min, ministral-8b-latest 188/min.
-  The limits are per model per minute, so the throttle `minIntervalMs` must be >= 60000/limit. To find what a key
-  can use, send a 1-token request per model and read the headers (GET /v1/models lists models the key cannot use too).
-- **Gemini 2.5 is closed to new users** ("no longer available to new users") → use `gemini-3.x-flash`.
-- **Free-tier limits**: 429 (quota) and 503 (high demand) are common. `HttpJson` retries with exponential backoff
-  (1.5s, 3s; max 3 attempts, Retry-After honoured). Every retry still counts against quotas.
+- **Gemini 2.5 is closed to new users** ("no longer available to new users") → use `gemini-3.8-flash`.
+- **Free-tier limits**: 429 (quota) and 503 (high demand) are common. `HttpJson` retries twice
+  (after 2s, then 5s). If you're still throttled, wait, or switch `provider` to `groq` (needs a key).
 - **PHP JSON gotcha (fixed)**: an empty `"args": {}` from Gemini decodes to `[]` and would be
   re-sent as a list, which gives HTTP 400. `GeminiProvider` restores it as an object. Watch
   for the same thing with any other empty JSON object.
@@ -217,7 +208,7 @@ refusal wording). Both `SqlValidator` and `PromptBuilder` read it.
 
 ## 10. Documented limitations (README "Known limitations")
 
-Mistral Free mode trains on inputs unless opted out (the owner has opted out); still a blocker for real data. Small
+Free-tier providers may train on prompts (fine for fake data, a blocker for real data). Small
 groups make aggregates individual disclosure (min-group-size is future work). The tier split
 between views is enforced by the validator, not MySQL: one erp_ai_ro account for all roles,
 and the hardening step is one account per tier. The validator is a conservative allowlist.
@@ -225,27 +216,20 @@ The demo role switcher must be off outside demos.
 
 ## 11. Status / next steps
 
-- Phases 1–7 are built and pass `verify/all` (177/177, no AI calls).
+- Phases 1–6 are built and pass `verify/all` (149/149).
 - **Floating chat widget: DONE (2026-09-28).** The home page is the "Demo Chatbot Testing Interface"
   dashboard; the bottom-right button toggles a Messenger-style popup on every signed-in page; history is
   kept per user in sessionStorage. Verified by `verify/phase6` and a headless-Edge run with stubbed fetch
   (open/close, history kept on toggle and across pages, Esc, unread dot, expand, HR sees a fresh chat,
   sign-out wipes storage). There were no backend changes.
-- **Mistral is the primary provider: DONE (2026-09-28).** Live `verify/demo` on ministral-14b-latest: **5/5 pass**
-  (recorded to fixtures); `--aiMode=replay` gives 5/5 with no key. Earlier live Gemini runs: #1-#3 passed, #4/#5 hit quota.
+- Live Gemini (`gemini-3.8-flash`, since switched to 3.6 by the owner) was verified on demo questions #1–#3. #4 generated the correct
+  `:dept` SQL, but it and #5 hit the free-tier 429 quota, so re-run `verify/demo` when the quota resets.
 - Suggested: add a Groq key as a demo-day fallback.
 
 ## Change log
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
 
-- 2026-09-28 (original Windows device) — **Primary AI switched to Mistral** (owner spec). One OpenAI-compatible client
-  for Mistral + Groq (Gemini kept native). Added a Transport layer: throttle (minIntervalMs, cross-request, flock) and
-  429/503 exponential retry (3 attempts); a per-user ResponseCache + `ai-cache/clear`; live/record/replay `mode` with
-  fixtures in tests/fixtures/ai; `verify/phase7` (28 no-network checks); `verify/demo --aiMode/--useCache`. The free tier
-  excludes mistral-large, so the model is ministral-14b-latest (2100ms throttle). A 403 about model/tier maps to
-  "model not available". README provider table, limits and Mistral training note (owner opted out) updated.
-  Not touched: schema, views, validator, access map, audit.
 - 2026-09-28 (original Windows device) — New owner rule: never `git push` without asking; local commits only.
 - 2026-09-28 (original Windows device) — **Floating chat widget** replaces the full-page chat: new
   `_chat_widget.php`, `chat-widget.js/.css`, `ChatWidgetAsset`; the home page is now a dashboard; the nav link "Chat" became

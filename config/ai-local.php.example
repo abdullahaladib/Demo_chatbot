@@ -6,8 +6,7 @@
  */
 return [
     'providers' => [
-        'mistral' => ['apiKey' => 'PASTE_MISTRAL_KEY_HERE'],   // primary
-        // 'gemini' => ['apiKey' => 'PASTE_GEMINI_KEY_HERE'],
-        // 'groq'   => ['apiKey' => 'PASTE_GROQ_KEY_HERE'],
+        'gemini' => ['apiKey' => 'PASTE_GEMINI_KEY_HERE'],
+        // 'groq' => ['apiKey' => 'PASTE_GROQ_KEY_HERE'],
     ],
 ];
