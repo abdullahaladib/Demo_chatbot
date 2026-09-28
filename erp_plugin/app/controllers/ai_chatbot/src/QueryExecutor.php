@@ -50,7 +50,7 @@ final class QueryExecutor
             Log::error("AI query failed (MySQL $code): {$e->getMessage()} | SQL: {$validated->executableSql}");
             throw new QueryFailed(match (true) {
                 in_array($code, [1142, 1143, 1044, 1045, 1227, 1370], true) => 'permission_denied',
-                $code === 3024 => 'timeout',
+                $code === 3024, $code === 1969 => 'timeout', // MySQL / MariaDB statement timeout
                 in_array($code, [1054, 1146, 1064, 1052, 1055, 1111, 1247, 1242, 1241, 1222, 1060], true) => 'bad_query',
                 default => 'database_error',
             }, "MySQL error $code", $code);

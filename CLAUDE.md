@@ -383,6 +383,14 @@ generated data, and fails if it spots a key. Human docs: `erp_plugin/app/control
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
 
+- 2026-09-28 (original Windows device) — **ERP plug-in: MariaDB support** (the live ERP DB is MariaDB 10.11). `Db::ai()` detects
+  MariaDB and uses `max_statement_time` + `tx_read_only` instead of MySQL's `MAX_EXECUTION_TIME` + `transaction_read_only`
+  (which would have failed every AI query). The MariaDB timeout code 1969 now maps to `timeout`. Tests pass 68/68 on MySQL;
+  **not yet run on a real MariaDB**. Wrote the owner a deployment guide PDF at `D:\ERP_AI_Chatbot_Plugin_Guide.pdf`
+  (source HTML in the session scratchpad; not in git). Findings for it: the plug-in needs no new extensions (the ERP
+  already uses curl, mbstring and a PDO login helper), PHP 8.1+, MariaDB 10.2.2+, and a DB admin who can CREATE USER/GRANT.
+  The live host looks cPanel-like (`/home/ezzyerp/`, per-folder php.ini), and the ERP web root exposes `phpinfo.php`.
+
 - 2026-09-28 (original Windows device) — **ERP plug-in fix: "Could not reach the ERP server"** after a question. Cause: Gemini
   answered 503 (high demand), the retries plus a hung call passed PHP's 30 s `max_execution_time`, and PHP died with an
   HTML error that the widget could not parse. The database was never reached. Fix: a per-question time budget

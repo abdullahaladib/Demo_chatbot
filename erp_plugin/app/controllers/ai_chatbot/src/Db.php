@@ -63,14 +63,16 @@ final class Db
                 throw new \RuntimeException("AI chatbot: no read-only AI account configured for tenant '$tenant'");
             }
             $pdo = self::connect($account['username'], $account['password'], $tenant);
-            $pdo->exec(sprintf(
-                // Statement timeout; read-only session as belt-and-braces (the grants are the real
-                // control); sql_mode WITHOUT ANSI_QUOTES / NO_BACKSLASH_ESCAPES so MySQL tokenises
-                // strings exactly as SqlValidator does.
-                "SET SESSION MAX_EXECUTION_TIME = %d, SESSION transaction_read_only = 1, "
-                . "SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'",
-                (int) Config::get('statementTimeoutMs', 5000)
-            ));
+            // Statement timeout; read-only session as belt-and-braces (the grants are the real
+            // control); sql_mode WITHOUT ANSI_QUOTES / NO_BACKSLASH_ESCAPES so the server tokenises
+            // strings exactly as SqlValidator does. MySQL and MariaDB name the first two differently
+            // (the live ERP runs MariaDB 10.11, where MAX_EXECUTION_TIME does not exist).
+            $ms = (int) Config::get('statementTimeoutMs', 5000);
+            $mariaDb = stripos((string) $pdo->query('SELECT VERSION()')->fetchColumn(), 'mariadb') !== false;
+            $pdo->exec(($mariaDb
+                    ? sprintf('SET SESSION max_statement_time = %.3F, SESSION tx_read_only = 1, ', $ms / 1000)
+                    : sprintf('SET SESSION MAX_EXECUTION_TIME = %d, SESSION transaction_read_only = 1, ', $ms))
+                . "SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'");
             self::$ai = $pdo;
         }
         return self::$ai;
