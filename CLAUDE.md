@@ -270,6 +270,24 @@ The demo role switcher must be off outside demos.
   DB yet**: run `verify/demo` only when the owner asks.
 - Scope is HR only (employees, leave, attendance, salary, directory). Other ERP modules (accounts, sales,
   CRM, hotel...) are possible later phases: each needs views + access-map entries + tests.
+- **PLANNING (2026-09-28): plug the chatbot into the company ERP** at `D:\Workspace\app` (a clone of the real ERP;
+  NOT a git repo; ~16.8k PHP files; the owner may change it but its structure and coding patterns must be kept). Findings:
+  raw PHP (short tags `<?` need short_open_tag=On), no framework/Composer. Entry: app/index.php → app/app/views/auth/masters/
+  index.php (login: company id `cid` + username + MD5 password) → home.php (standalone dashboard, module cards). MULTI-TENANT:
+  a master DB (company_info + database_info) maps cid → tenant DB creds kept in the session (db_user/db_pass/db_name); the
+  training dump is one tenant DB. `controllers/config/db_master_config.php` tries a REMOTE production host ("central") BEFORE
+  local, so local runs must not use it as-is. Session keys: `$_SESSION['user']['id']` = user_activity_management.user_id,
+  ['level'], ['group'] (group_for), ['depot'] (warehouse), `mhafuz=Active` = signed in. Module pages: require layout.top.php
+  → content → require layout.bottom.php, which wraps everything in controllers/routing/inc.main_layout.php (one `</body>`
+  for both templates) → a single include there plus one in home.php reaches every signed-in view. AJAX endpoints = plain files
+  in views/<module>/ that require default_values.php + layout.top.php and use helpers (db_query, find_a_field...; mysqli $conn).
+  Theme: home.php uses --primary #2563eb, --secondary #7c3aed, sidebar #101828, bg #f3f6fb, Inter, Font Awesome 6; module
+  pages (hrm_theme.css.php) use --navy (var(--theme-color-bgc), per company), --teal #1f8fae, Sora/Inter, and dark mode via
+  html[data-theme=dark]. JS/CSS come from SERVER_CDN https://erpengine.cloud/npm/ (jQuery 3.7, Bootstrap, select2...).
+  ERP modules: user_module_manage (48, 41 active: HRIS, Financial Accounting, Procurement, Inventory, Sales, L/C, CRM,
+  Loan, Fixed Asset, Rental, Property, KPI...); per-user access in user_module_define (98 users, 600 enabled grants).
+  Accounting data: journal 5.2k, journal_item 4k, secondary_journal 7.9k, accounts_ledger 342, sub_ledger 174,
+  sub_sub_ledger 410, general_sub_ledger 210, ledger_group 113.
 - **Coming later (owner):** a new UI supplied by the boss. It must keep the floating Messenger-style chat
   widget on every signed-in page. Wait for the owner to say what goes where.
 - Suggested: add a Groq key as a demo-day fallback.
@@ -295,6 +313,8 @@ Tell the owner before resetting `main` itself; prefer a branch from the tag.
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
 
+- 2026-09-28 (original Windows device) — Analysed the company ERP clone at D:\Workspace\app for plugging in the chatbot
+  (see Status). No changes made yet; plan shown to the owner.
 - 2026-09-28 (original Windows device) — **CHECKPOINT** `checkpoint-2026-09-28-training-db` (git tag, pushed) + local DB
   snapshot `checkpoints/erp_training-2026-09-28.sql.gz`. See section 12.
 - 2026-09-28 (original Windows device) — **Demo DB replaced by the training ERP** (`erp_training`, imported from
