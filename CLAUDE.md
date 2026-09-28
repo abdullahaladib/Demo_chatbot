@@ -202,6 +202,9 @@ refusal wording). Both `SqlValidator` and `PromptBuilder` read it.
 - The Yii CSRF token rotates on login, and TestHttpClient refreshes it after redirects.
 - Native Windows PHP can't see Git Bash's `/tmp`, so use the repo's `runtime/` or the scratchpad.
 - The stock yii2-app-basic `LoginForm.php` shipped with a syntax error; it has been replaced.
+- **Mistral free tier (tried and rolled back on 2026-09-28):** the owner's key got 403 "model not available in your
+  subscription tier" for mistral-large-latest, and 0 req/min for mistral-medium/small and magistral. Only
+  ministral-14b-latest (30/min), codestral-latest and ministral-8b-latest were usable. Code is in commit 6e6bd56.
 - **Stable ids (fixed 2026-09-28):** `migrate/redo 2` used to re-seed employees as ids 11-20 (auto-increment
   kept counting). The seed `safeDown` now resets AUTO_INCREMENT, so ids are always ceo=1, hr=2, enghead=3,
   engmgr=4, dev1=5 ... sales2=10. Code and tests look users up by email anyway; the ids matter for docs and demo visuals.
@@ -230,6 +233,11 @@ The demo role switcher must be off outside demos.
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
 
+- 2026-09-28 (original Windows device) — **Mistral switch ROLLED BACK at the owner's request** ("the mistral api is not
+  working, go back to gemini"). Commit 6e6bd56 (Mistral primary, one OpenAI-compatible client, throttle, 429 backoff,
+  per-user response cache, record/replay fixtures, verify/phase7) was undone by `git revert` (a9d7851); the code is still
+  in history if wanted later. Provider is back to `gemini` / `gemini-3.6-flash`. verify/all 149/149 with keys parked.
+  No live AI testing was done for the rollback. config/ai-local.php still holds the Mistral key (inert, gitignored).
 - 2026-09-28 (original Windows device) — New owner rule: never `git push` without asking; local commits only.
 - 2026-09-28 (original Windows device) — **Floating chat widget** replaces the full-page chat: new
   `_chat_widget.php`, `chat-widget.js/.css`, `ChatWidgetAsset`; the home page is now a dashboard; the nav link "Chat" became
