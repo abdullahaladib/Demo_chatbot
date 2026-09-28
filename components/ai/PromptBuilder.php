@@ -12,7 +12,7 @@ use yii\db\Query;
  * Builds the system prompt for ONE role.
  *
  * The prompt contains:
- *   - the whole company knowledge base (company_info is ~15 short rows - cheaper and
+ *   - the whole company knowledge base (ai_knowledge_base is ~20 short rows - cheaper and
  *     more accurate in-prompt than embeddings)
  *   - the column list of ONLY the views this role may query (from config/access-map.php)
  *   - the SQL rules and the refusal protocol
@@ -98,7 +98,7 @@ PROMPT;
     private function knowledgeBase(): string
     {
         $rows = (new Query())->select(['section', 'title', 'body'])
-            ->from('{{%company_info}}')->orderBy(['section' => SORT_ASC, 'id' => SORT_ASC])
+            ->from('ai_knowledge_base')->orderBy(['section' => SORT_ASC, 'id' => SORT_ASC])
             ->all(Yii::$app->db);
 
         $out = [];

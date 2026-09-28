@@ -53,7 +53,9 @@ account (`erp_ai_ro`) that has SELECT on those views and nothing else.**
   - Never show raw SQL errors to users. Never skip the audit log (one row per chat turn).
 - **Secrets are committed on purpose** (owner decision, 2026-09-27): `config/db-local.php`
   (DB passwords, cookie key) and `config/ai.php` (provider/model settings) are in git so every
-  device can just pull and run. All data is fabricated. Don't "fix" this by re-ignoring them.
+  device can just pull and run (these hold only local DB passwords and settings). Don't "fix" this by re-ignoring them.
+  The ERP DATA itself is a copy of the real training database: the dump is gitignored, and never paste its
+  personal data (names, salaries, password hashes) into commits, docs or chat beyond what a task needs.
 - **EXCEPTION: the AI API key is NOT in git.** The GitHub repo is public, so GitHub would block
   the push and Google would auto-revoke a leaked key. Keys live in the gitignored
   `config/ai-local.php`, which is merged over `config/ai.php`. Never commit a key.
@@ -65,86 +67,118 @@ account (`erp_ai_ro`) that has SELECT on those views and nothing else.**
 | OS (original device) | Windows 10, VS Code, Git Bash + PowerShell |
 | PHP | 8.5 at `C:\php` (on PATH) |
 | Composer | `C:\ProgramData\ComposerSetup\bin\composer.phar`; may not be on PATH, run `php C:/ProgramData/ComposerSetup/bin/composer.phar ...` |
-| MySQL | 8.0 service `MySQL80`, client `C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe`. Use `--host=127.0.0.1` (PowerShell mangles `-h127.0.0.1`). |
-| Database | `erp_demo`, utf8mb4_unicode_ci, no table prefix |
-| MySQL accounts | `erp_app` (ALL on erp_demo), `erp_ai_ro` (SELECT on the 20 v_* views only). Both exist for `@localhost` and `@127.0.0.1`. The app connects via `127.0.0.1`. Passwords are in `config/db-local.php`. |
-| MySQL root | Needed only for setup. The password is machine-specific and **not stored in the repo**; ask the owner. |
-| Web | `php yii serve localhost:8080` → http://localhost:8080 |
-| Demo logins | 10 users `*@demo.local`, all with password `Demo@1234`. Use the "Switch user" menu to change identity. |
-| AI | `config/ai.php`: provider `gemini`, model **`gemini-3.6-flash`** (owner switched from 3.8 on 2026-09-28), temperature 0. **Key in `config/ai-local.php` (gitignored, one per device; copy `config/ai-local.php.example`).** Groq fallback `openai/gpt-oss-120b`, no key yet. |
+| MySQL | 8.0.46 service `MySQL80`, client `C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe`. Use `--host=127.0.0.1` (PowerShell mangles `-h127.0.0.1`). `lower_case_table_names=1`. |
+| Database | **`erp_training`**: the imported training ERP (1288 tables) plus our `ai_*` tables and views. (`erp_demo`, the old self-made demo DB, still exists but is unused.) |
+| Source dump | `trainingclouderp_training_db.sql` (91 MB, MariaDB 10.11) in the project root. **Gitignored: PII + password hashes, and the repo is public. Never commit it; copy it between devices by hand.** |
+| MySQL accounts | `erp_app` (ALL on erp_training), `erp_ai_ro` (SELECT on the 25 v_* views only). Both exist for `@localhost` and `@127.0.0.1`. The app connects via `127.0.0.1`. Passwords are in `config/db-local.php`. |
+| MySQL root | Needed only for setup/import. The password is machine-specific and **not stored in the repo**; ask the owner. |
+| Web | `php yii serve localhost:8080` → http://localhost:8080 (the owner's; use :8081 for tests) |
+| Demo logins | ERP usernames `bimol`, `hr.demo`, `1005`, `1002`, `tanvir`, `1954` (listed in `config/params.php` `demoPeople`), password **`Demo@1234`**. Every in-service employee's login also accepts Demo@1234. |
+| AI | `config/ai.php`: provider `gemini`, model **`gemini-3.6-flash`**, temperature 0. **Key in `config/ai-local.php` (gitignored, one per device; copy `config/ai-local.php.example`).** Groq fallback `openai/gpt-oss-120b`, no key yet. |
 
 ## 4. Setting up a new device
 
 ```bash
 git pull
 php C:/ProgramData/ComposerSetup/bin/composer.phar install   # or: composer install
-php yii setup/database <mysql-root-password>                   # DB + erp_app + migrate + erp_ai_ro
+# copy trainingclouderp_training_db.sql into the project root (it is not in git)
+php yii setup/database <mysql-root-password>   # erp_app + import dump (~6 min) + migrate + erp_ai_ro
 cp config/ai-local.php.example config/ai-local.php            # then paste the Gemini key into it (ask the owner)
-php yii serve localhost:8080                                   # leave running
-php yii verify/all                                             # expect 0 failed
-php yii verify/demo                                            # live AI; free-tier quota permitting
+php yii serve localhost:8081                                   # temporary test server
+php yii verify/all --baseUrl=http://localhost:8081             # expect 151 passed, 0 failed
 ```
 
-`setup/database` is idempotent. If MySQL on that device refuses TCP logins for a user that
-exists, check for an anonymous `''@'localhost'` row, or try host `localhost` in `db-local.php`.
+`setup/database` rebuilds erp_training from the dump every time (it DROPS the database). If MySQL
+on that device refuses TCP logins for a user that exists, check for an anonymous `''@'localhost'`
+row, or try host `localhost` in `db-local.php`.
 
 ## 5. Architecture: four security layers
 
 1. **Two MySQL accounts.** `db` (erp_app) is for the app and migrations. `dbAi` (erp_ai_ro)
-   is only for AI SQL. The views are `SQL SECURITY DEFINER`, so erp_ai_ro can read them with no
-   base-table grants. `dbAi` also sets `MAX_EXECUTION_TIME=5000`,
+   is only for AI SQL. The views are `SQL SECURITY DEFINER`, so erp_ai_ro reads them with no
+   grant on any of the 1288 ERP tables. `dbAi` also sets `MAX_EXECUTION_TIME=5000`,
    `transaction_read_only=1`, a pinned `sql_mode` (no ANSI_QUOTES / NO_BACKSLASH_ESCAPES, so
    MySQL tokenises strings the same way the validator does), and `EMULATE_PREPARES=false`.
-2. **Role-scoped views** (`migrations/m260927_000005_create_role_views.php`, 20 views).
-   Only `v_hr_employees_full`, `v_hr_payroll` and `v_exec_payroll_summary` touch `salaries`.
-3. **Bound params.** A view can't know who is asking. The AI writes `:me` / `:dept`;
-   `QueryExecutor` binds them from the session `Employee`. **Extra hardening beyond the
-   spec:** the validator rewrites each scoped view into
-   `(SELECT * FROM v_x WHERE col = :me) AS v_x`, so `WHERE employee_id = :me OR 1=1`
-   still returns only the asker's rows.
+2. **Role-scoped views** (`migrations/training/m260928_000003_create_role_views.php`): 25 `v_*`
+   views over 6 internal `ai_*` helper views. The helpers are not granted and not in any
+   allowlist. Only `v_hr_employees_full`, `v_hr_payroll` and `v_exec_payroll_summary` read
+   `salary_info`. No v_* view exposes passwords, tokens, DOB, religion, NID/TIN/CV/photo paths,
+   personal phone or bank account/branch. The views also clean the ERP data (zero/1970 dates,
+   orphan leave rows, numeric leave types → names, attendance flags → one status, "newTest"
+   leave type ignored).
+3. **Bound params.** `:me` = session employee's `pbi_id`; `:dept` = the department the role is
+   scoped to (a dept head's assigned dept). `QueryExecutor` binds them from the session
+   `Employee`. The validator also wraps each scoped view in
+   `(SELECT * FROM v_x WHERE col = :me) AS v_x`, so `... OR 1=1` cannot widen the rows.
 4. **Validator** (`components/ai/SqlValidator.php`): a real tokenizer. It enforces SELECT
    only, one statement, no comments, no `@`/`?`, no system schemas, a per-role table
    allowlist after FROM/JOIN/comma, the required scope predicate (`col = :me`), and
-   LIMIT ≤ 200 (appended or rewritten).
+   LIMIT ≤ 200 (appended or rewritten). No code change was needed for the new DB.
 
 **Single source of truth:** `config/access-map.php` (role → views → scope column/param,
-refusal wording). Both `SqlValidator` and `PromptBuilder` read it.
+refusal wording, how each tier reads "my team"). Both `SqlValidator` and `PromptBuilder` read it.
 
-### Roles
+### Roles and how a tier is decided (`components/RoleResolver.php`, per request)
+
+1. `ai_role_assignment` (pbi_id → ceo | hr | dept_head [+ dept_id]) wins;
+2. else line manager (`incharge_id` or `incharge_id_2`) of ≥1 in-service employee → manager;
+3. else employee.
+
+**Never** use the ERP's `user_activity_management.level`: it is a module privilege, and 52/76
+logins are 5 "Supreme Administrator".
 
 | role | rows | salary | views |
 |---|---|---|---|
-| employee | own (`employee_id = :me`) | no | v_employee_directory, v_my_* |
-| manager | + direct reports (`manager_id = :me`) | no | + v_team_* |
-| dept_head | whole dept (`department_id = :dept`) | no | directory, v_my_*, v_dept_* |
-| hr | all | yes | directory, v_my_*, v_hr_* (incl. extra `v_hr_leave_balances_all`) |
-| ceo | all | yes | + v_exec_* |
+| employee | own (`employee_id = :me`) | no | v_employee_directory, v_my_* (5) |
+| manager | + reporting line (`supervisor_id = :me`, depth 1 = direct) | no | + v_team_* (4) |
+| dept_head | + whole dept (`department_id = :dept`) | no | + v_dept_* (4) |
+| hr | all | yes | directory, v_my_*, v_hr_* (7) |
+| ceo | all + own reporting line | yes | directory, v_my_*, v_team_*, v_hr_*, v_exec_* (4) |
+
+The team views use `ai_reporting_line`, a recursive CTE over incharge_id + incharge_id_2. It is
+cycle-safe (a path check, because the ERP has circular chains), capped at depth 6, with one
+row per (employee, supervisor) and MIN(depth). `v_exec_payroll_summary` suppresses pay for
+groups under 5 (`MIN_GROUP` in the migration).
+
+### Identity / login
+- `models/Employee.php` = `personnel_basic_info` (pk pbi_id). It exposes a stable surface the
+  security code uses: `id` (pbi_id), `role`, `department_id` (scoped dept), `full_name`,
+  `email`, `designation`, `department` (relation to `department`, NOT `setup_department`).
+- `models/ErpUser.php` = `user_activity_management` (username; PBI_ID link). Password: bcrypt in
+  `ai_user_credential` if issued, else the ERP's unsalted MD5; plaintext rows are never accepted.
+- Only logins of an **In Service** employee can sign in (`LoginForm`). Cookie auto-login is
+  off (the ERP has no auth key). The role switcher and login page list `params['demoPeople']`.
 
 ### Chat flow (`components/ai/ChatService.php`)
 1. The identity comes from the session. The request body is only `{"question": ...}`; any
    role or id in the body is ignored.
-2. `PromptBuilder` builds the system prompt: the KB, the columns of only this role's views,
-   and the SQL rules. It never contains the user's id.
+2. `PromptBuilder` builds the system prompt: `ai_knowledge_base`, the columns of only this role's
+   views, and the SQL rules. It never contains the user's id.
 3. Tool loop (max 6 rounds). A text-only reply is the info path. A reply starting
    `ACCESS_DENIED:` means the model refused (no SQL) and becomes path `denied`.
 4. A `runReadOnlyQuery` refusal **ends the turn** with a server-written message. A failing
    query (bad column) gets a sanitised hint, with up to 2 retries.
-5. Exactly one `chat_audit_log` row per turn (info/data/denied/error). `employee_id` has no FK.
+5. Exactly one `ai_chat_audit_log` row per turn (info/data/denied/error). `employee_id` = pbi_id, no FK.
 
 ## 6. File map
 
 | Path | Purpose |
 |---|---|
-| `config/db-local.php` | Host, db name, erp_app + erp_ai_ro passwords, cookie key (committed) |
+| `config/db-local.php` | Host, dbname **erp_training**, erp_app + erp_ai_ro passwords, cookie key (committed) |
 | `config/ai.php` | Provider, model, settings (committed, apiKey left empty) |
 | `config/ai-local.php` | **API keys, gitignored**, per device. Template: `ai-local.php.example`. Merged over ai.php by `ProviderFactory::config()`. |
 | `config/db.php`, `config/db-ai.php` | The `db` and `dbAi` connections |
-| `config/access-map.php` | Role/view/scope map |
-| `config/params.php` | `demoRoleSwitcher` flag |
-| `sql/00-bootstrap.sql`, `sql/01-ai-readonly-user.sql` | Root scripts with `__PASSWORD__` placeholders (use `setup/database`) |
-| `migrations/m260927_00000{1,2,3}_*` | Schema: org tables; leave/attendance; company_info + chat_audit_log |
-| `migrations/m260927_000004_seed_demo_data.php` | Seed data: dates relative to run day, `mt_srand` fixed |
-| `migrations/m260927_000005_create_role_views.php` | The 20 views |
+| `config/access-map.php` | Role/view/scope map (25 views) |
+| `config/params.php` | `demoRoleSwitcher` flag, `demoPeople` (usernames shown in switcher/login) |
+| `config/console.php` | `migrate` → `@app/migrations/training`, history table `ai_migration` |
+| `sql/00-bootstrap.sql`, `sql/01-ai-readonly-user.sql` | Root scripts with `__PASSWORD__` placeholders (use `setup/database`); 01 has one GRANT per v_* view |
+| `migrations/training/m260928_000001_create_ai_tables.php` | ai_role_assignment, ai_user_credential, ai_knowledge_base, ai_chat_audit_log |
+| `migrations/training/m260928_000002_demo_people_and_access.php` | Tier assignments; creates demo HR employee 45728 + login `hr.demo` (copied from a template row, personal fields blanked, zero dates ERP-style); Demo@1234 for every in-service login |
+| `migrations/training/m260928_000003_create_role_views.php` | 6 ai_* helpers + 25 v_* views |
+| `migrations/training/m260928_000004_knowledge_base.php` | KB generated from hrm_leave_type, hrm_schedule_info, hris_holiday_setup, hris_late_policy_config, departments, titles (+ drafted procedural rows, labelled) |
+| `migrations/demo/` | The old self-made demo schema. Unused, kept for reference |
+| `components/TrainingDumpConverter.php` | MariaDB → MySQL 8 rewrite of the dump (ENUM dedup, DATE default → `(curdate())`, `innodb_strict_mode = 0`) |
+| `components/RoleResolver.php` | Tier resolution (see §5) |
 | `components/ai/` | AccessMap, SqlValidator, RejectedQuery, ValidationResult, QueryExecutor, QueryFailed, QueryGateway, PromptBuilder, ChatService |
 | `components/ai/provider/` | LlmProvider interface, GeminiProvider, OpenAiCompatibleProvider (Groq), ScriptedProvider (tests), ProviderFactory, HttpJson (curl), ProviderError |
 | `components/TestHttpClient.php` | Cookie+CSRF curl client used by the verify commands |
@@ -152,98 +186,106 @@ refusal wording). Both `SqlValidator` and `PromptBuilder` read it.
 | `controllers/ChatController.php` | `index` (the "Demo Chatbot Testing Interface" dashboard, the default route), `ask` (POST JSON), `audit` (hr/ceo see all, others their own) |
 | `controllers/SecurityTestController.php` | Web test bench: hand-written SQL through QueryGateway, shows the role's prompt |
 | `commands/VerifyController.php` | `verify/phase1..6`, `verify/all`, `verify/demo` (live AI) |
-| `commands/SecurityController.php` | `security/prompt <email>`, `security/check <email> "<sql>"`, `security/raw "<sql>"` (bypasses the validator to show a MySQL 1142) |
-| `commands/SetupController.php` | `setup/database <rootpw>` |
-| `models/Employee.php` | AR + IdentityInterface. `models/Department.php`, `models/ChatAuditLog.php`, `models/LoginForm.php` (email login) |
+| `commands/SecurityController.php` | `security/prompt <username>`, `security/check <username> "<sql>"`, `security/raw "<sql>"` (bypasses the validator to show a MySQL 1142) |
+| `commands/SetupController.php` | `setup/database <rootpw>` (full rebuild), `setup/import-training <rootpw>` (import only; runs the mysql client AS ROOT, because the converted dump sets innodb_strict_mode) |
+| `models/Employee.php`, `ErpUser.php`, `Department.php`, `Designation.php`, `LoginForm.php` (username), `ChatAuditLog.php` (ai_chat_audit_log) | |
 | `views/chat/index.php` | Dashboard page behind the chat (no chat code in it) |
-| `views/layouts/_chat_widget.php` | **Floating chat widget** markup (bottom-right button + Messenger-style popup: SQL toggle, expand, clear, close, suggestion chips). Rendered by `layouts/main.php` for signed-in users on EVERY page. The per-role suggestions live here. |
+| `views/layouts/_chat_widget.php` | **Floating chat widget** markup (bottom-right button + Messenger-style popup: SQL toggle, expand, clear, close, suggestion chips). Rendered by `layouts/main.php` for signed-in users on EVERY page. The per-tier suggestions live here. |
 | `web/js/chat-widget.js` | Widget behaviour: open/close, Esc, unread dot, expand, clear, safe markdown/table/SQL rendering, history in sessionStorage key `erp.chat.v1.<userId>` (other users' keys deleted on load; all wiped on the signed-out layout; max 50 messages) |
 | `web/css/chat-widget.css` | Widget styles (380x560, expanded 640x720, height capped at `100vh-230px` so it never covers the navbar, lifted above the Yii debug toolbar, full-screen under 576px) |
 | `assets/ChatWidgetAsset.php` | Asset bundle for the widget (depends on AppAsset for yii.js/CSRF) |
 
-## 7. Seed data facts (used by the tests; update the tests if you change the seed)
+## 7. Data facts (used by the tests; update `VerifyController` constants if the dump changes)
 
-- Departments: EXEC, ENG, SLS, HR. There are 10 employees; dev1 = Arif Hossain (id 5),
-  enghead = Tanvir Ahmed, hr = Nusrat Jahan, ceo = Mahbubur Rahman Chowdhury (id 1).
-- dev1's leave balance: Annual 16/20, Sick 12/14, Casual 10/10 (38 paid days left).
-- Engineering has 5 pending leave requests (Arif ×2, Sadia, Rakibul, Farhana).
-  Engineering's average current gross salary is **BDT 218,400** (5 people).
-- Executive and HR have 1 person each (the small-group disclosure limitation).
-- 31 leave requests, 40 balances, 400 attendance rows (40 working days, no Fri/Sat).
-- Refresh the relative dates before a demo: `php yii migrate/redo 2` (grants survive it).
+- A software company. `personnel_basic_info` has 56 rows (55 from the dump + demo HR 45728); 35 are In
+  Service. Department 10 "Engineer" has 31 of them. `user_activity_management` has 77 rows.
+- Demo people: `bimol` = 1001 Bimol Chandra Das (CTO) → ceo, 21 people in his reporting line;
+  `1005` = Payer Alam Rony (CTO Operation) → dept_head of dept 10; `1002` = Kawsar Mahmud (Sr PM) →
+  manager of 3 (Jobaraj Miah, Zawad-Al-Mustakin, Iftekhar Ahmed Rifat); `tanvir` = 1960 Tanvir Ahmmed
+  (Jr SE) → employee; `1954` = Md Nizam Uddin → employee; `hr.demo` = 45728 Farzana Rahman (Demo HR) → hr.
+- Tanvir's 2026 balance: Casual 13 of 15 (2 used), Sick 6, Marriage 10, Maternity 30, Paid 5.
+- Engineer average current gross salary: **BDT 66,429** (17 people with gross > 0). The other
+  departments with salary have 1 person each → suppressed in the exec summary.
+- Engineering has 54 pending leave requests (Dec 2024 – Aug 2026). Leave data ends Aug 2026;
+  daily attendance for active staff ends 2026-02-02; monthly attendance ends Jan 2026.
+- Office: Day Shift 10:20–18:00, 20-min grace; Friday weekend; 2026 holidays in hris_holiday_setup.
 
 ## 8. Testing
 
-- `php yii verify/all` runs 149 checks across phases 1–6 and needs a running server. Use a temporary
-  one: `php yii serve localhost:8081` plus `php yii verify/all --baseUrl=http://localhost:8081`, then
-  stop it. **No AI calls**: phase 5 uses `ScriptedProvider` (including a malicious model), and its one HTTP
-  `chat/ask` check sends an over-long question that is rejected before the AI. For a hard guarantee, move
-  `config/ai-local.php` aside while testing and put it back afterwards.
+- `php yii verify/all` runs **151** checks across phases 1–6 and needs a running server. Use a
+  temporary one: `php yii serve localhost:8081` plus `php yii verify/all --baseUrl=http://localhost:8081`,
+  then stop it. **No AI calls**: phase 5 uses `ScriptedProvider` (including a malicious model), and its
+  one HTTP `chat/ask` check sends an over-long question that is rejected before the AI. For a hard
+  guarantee, move `config/ai-local.php` aside while testing and put it back afterwards.
 - `php yii verify/demo` runs the 5 demo questions live. It uses about 3 API calls per data
   question. **Only when the owner explicitly asks.**
 - Browser UI checks: headless Edge
   (`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe --headless=new --screenshot`)
-  on a temporary same-origin harness page in `web/` (for example `web/_uitest.html`). It logs in by POSTing to
-  `site/switch-user`, loads app pages in an iframe, and **stubs `iframe.contentWindow.fetch`** with canned
-  `chat/ask` JSON, so there are no AI calls. Launch it via PowerShell `Start-Process` (Git Bash gets no output), and
-  pin the result text with `position:fixed`, because autofocus scrolls the page. Headless virtual time
-  freezes CSS animations and transitions, so measure `offsetWidth` or the computed style, not
-  `getBoundingClientRect`. Delete the harness afterwards.
+  on a temporary same-origin harness page in `web/` (for example `web/_uitest.html`). It logs in by POSTing
+  to `site/switch-user` (`id=<pbi_id>`), loads app pages in an iframe, and **stubs
+  `iframe.contentWindow.fetch`** with canned `chat/ask` JSON, so there are no AI calls. Launch it via
+  PowerShell `Start-Process` (Git Bash gets no output), and pin the result text with `position:fixed`,
+  because autofocus scrolls the page. Headless virtual time freezes CSS animations, so measure
+  `offsetWidth` or the computed style, not `getBoundingClientRect`. Delete the harness afterwards.
+- Quick SQL inspection: the mysql client as `erp_app` against `erp_training` (password in db-local.php).
+  Don't `grep -r` the project root: the 91 MB dump makes it crawl. Use the Grep tool with a glob.
 
 ## 9. Known issues / gotchas
 
-- **Gemini 2.5 is closed to new users** ("no longer available to new users") → use `gemini-3.8-flash`.
+- **MariaDB → MySQL 8 import** needs three rewrites (see TrainingDumpConverter). Zero dates import
+  fine because the dump sets `SQL_MODE = "NO_AUTO_VALUE_ON_ZERO"`. Writing ERP rows from the app
+  (strict mode) fails on zero dates: relax `sql_mode` for that session, as migration 0002 does.
+- **Collations**: ERP tables are utf8mb4_unicode_ci and the connection is utf8mb4_0900_ai_ci. In views,
+  compare codes numerically (`CAST(x AS UNSIGNED)`), not `CAST(id AS CHAR) = col` (error 1267).
+- MySQL sorts ENUM columns by definition order, not alphabetically.
+- **Gemini 2.5 is closed to new users** ("no longer available to new users") → use `gemini-3.x-flash`.
 - **Free-tier limits**: 429 (quota) and 503 (high demand) are common. `HttpJson` retries twice
   (after 2s, then 5s). If you're still throttled, wait, or switch `provider` to `groq` (needs a key).
 - **PHP JSON gotcha (fixed)**: an empty `"args": {}` from Gemini decodes to `[]` and would be
-  re-sent as a list, which gives HTTP 400. `GeminiProvider` restores it as an object. Watch
-  for the same thing with any other empty JSON object.
+  re-sent as a list, which gives HTTP 400. `GeminiProvider` restores it as an object.
 - **Windows TLS**: PHP has no CA bundle, so HttpJson uses `CURLSSLOPT_NATIVE_CA`. Never disable verification.
 - The Yii CSRF token rotates on login, and TestHttpClient refreshes it after redirects.
 - Native Windows PHP can't see Git Bash's `/tmp`, so use the repo's `runtime/` or the scratchpad.
-- The stock yii2-app-basic `LoginForm.php` shipped with a syntax error; it has been replaced.
+- `sed` replacements containing `\a`/`\e` (e.g. `\app\models`) insert control characters; do such
+  edits with the Edit tool or PHP.
 - **Mistral free tier (tried and rolled back on 2026-09-28):** the owner's key got 403 "model not available in your
   subscription tier" for mistral-large-latest, and 0 req/min for mistral-medium/small and magistral. Only
   ministral-14b-latest (30/min), codestral-latest and ministral-8b-latest were usable. Code is in commit 6e6bd56.
-- **Stable ids (fixed 2026-09-28):** `migrate/redo 2` used to re-seed employees as ids 11-20 (auto-increment
-  kept counting). The seed `safeDown` now resets AUTO_INCREMENT, so ids are always ceo=1, hr=2, enghead=3,
-  engmgr=4, dev1=5 ... sales2=10. Code and tests look users up by email anyway; the ids matter for docs and demo visuals.
 
 ## 10. Documented limitations (README "Known limitations")
 
-Free-tier providers may train on prompts (fine for fake data, a blocker for real data). Small
-groups make aggregates individual disclosure (min-group-size is future work). The tier split
-between views is enforced by the validator, not MySQL: one erp_ai_ro account for all roles,
-and the hardening step is one account per tier. The validator is a conservative allowlist.
+**Free-tier AI data use now matters:** the chatbot runs on a copy of the real training ERP, so the
+returned rows (names, leave reasons, and for HR/exec, salaries) go to the provider, which may train on
+free-tier input. Use a paid tier or a self-hosted model beyond a controlled demo. The ERP stores passwords
+as unsalted MD5 (2 as plaintext), which is a finding for the owner. Small groups: the exec payroll summary
+suppresses groups under 5. The tier split between views is enforced by the validator, not MySQL (one
+erp_ai_ro for all roles; hardening = one account per tier). The validator is a conservative allowlist.
 The demo role switcher must be off outside demos.
 
 ## 11. Status / next steps
 
-- Phases 1–6 are built and pass `verify/all` (149/149).
-- **Floating chat widget: DONE (2026-09-28).** The home page is the "Demo Chatbot Testing Interface"
-  dashboard; the bottom-right button toggles a Messenger-style popup on every signed-in page; history is
-  kept per user in sessionStorage. Verified by `verify/phase6` and a headless-Edge run with stubbed fetch
-  (open/close, history kept on toggle and across pages, Esc, unread dot, expand, HR sees a fresh chat,
-  sign-out wipes storage). There were no backend changes.
-- Live Gemini (`gemini-3.8-flash`, since switched to 3.6 by the owner) was verified on demo questions #1–#3. #4 generated the correct
-  `:dept` SQL, but it and #5 hit the free-tier 429 quota, so re-run `verify/demo` when the quota resets.
+- **DONE (2026-09-28): the demo DB is replaced by the training ERP** (`erp_training`). Import + 4 training
+  migrations + erp_ai_ro grants. `verify/all` passes 151/151 with the AI keys parked. The dashboard and chat
+  widget render with real data (headless Edge screenshot as the dept head). **No live AI run on the new
+  DB yet**: run `verify/demo` only when the owner asks.
+- Scope is HR only (employees, leave, attendance, salary, directory). Other ERP modules (accounts, sales,
+  CRM, hotel...) are possible later phases: each needs views + access-map entries + tests.
+- **Coming later (owner):** a new UI supplied by the boss. It must keep the floating Messenger-style chat
+  widget on every signed-in page. Wait for the owner to say what goes where.
 - Suggested: add a Groq key as a demo-day fallback.
-- **PLANNING (2026-09-28): replace the demo DB with `trainingclouderp_training_db.sql`** (owner request; UI stays the same for
-  now; later the owner will supply a new UI, which must keep the floating chat widget on every signed-in page). Plan shown
-  to the owner; waiting for answers to its open questions before building. Dump facts: MariaDB 10.11 phpMyAdmin dump,
-  91 MB, 1288 tables, ~565k rows, no views/routines. HR core: personnel_basic_info (55 employees, 34 In Service; pk pbi_id;
-  dept_id -> `department`.DEPT_ID, NOT setup_department; desg_id -> designation; incharge_id / incharge_id_2 = line managers),
-  user_activity_management (76 logins, PBI_ID link; passwords 74 unsalted MD5 + 2 PLAINTEXT; `level` = module privilege,
-  52/76 are 5 "Supreme Administrator", so it is useless for tiers), hrm_leave_info (731), hrm_leave_type (12),
-  hrm_att_summary (daily, 18.9k), hrm_attendence_final (monthly), salary_info (51 rows, 25 with gross>0; has bank ac_no).
-  Data issues: dept heads never recorded; reporting chain has cycles (36 employees) + 1 self-incharge; CEO/MD are Not In
-  Service; the HRM Manager logins have no employee link; zero/1970 dates; leave rows for 9 missing employees. Import risks on
-  MySQL 8: 452 duplicate-value ENUMs, zero dates. **The dump is gitignored (PII + hashes; public repo). Never commit it.**
 
 ## Change log
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
 
+- 2026-09-28 (original Windows device) — **Demo DB replaced by the training ERP** (`erp_training`, imported from
+  trainingclouderp_training_db.sql). Added: TrainingDumpConverter + `setup/import-training`; `setup/database` does
+  the full rebuild; migrations/training (ai_* tables; demo people: ceo=1001, dept_head=1005, NEW hr.demo 45728;
+  Demo@1234 for 35 logins; 25 v_* views + 6 ai_* helpers incl. a cycle-safe reporting chain; KB generated from ERP
+  policy tables); RoleResolver; Employee/ErpUser/Department/Designation/LoginForm on ERP tables; access-map rewritten;
+  the switcher/login use params demoPeople; security/* commands take usernames; bench presets updated; VerifyController
+  rewritten (151 checks). Old migrations moved to migrations/demo. No live AI calls. Pages now say "copy of the training
+  ERP database" (not "fabricated").
 - 2026-09-28 (original Windows device) — Analysed trainingclouderp_training_db.sql and wrote the DB-replacement plan (see
   Status). Gitignored the dump. No code or DB changes yet.
 - 2026-09-28 (original Windows device) — **Mistral switch ROLLED BACK at the owner's request** ("the mistral api is not

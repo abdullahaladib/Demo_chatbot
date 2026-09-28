@@ -13,7 +13,7 @@
 return [
     'host' => '127.0.0.1',
     'port' => 3306,
-    'dbname' => 'erp_demo',
+    'dbname' => 'erp_training',
     'app' => [
         'username' => 'erp_app',
         'password' => 'CHANGE_ME',

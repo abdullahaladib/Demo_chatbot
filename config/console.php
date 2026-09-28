@@ -30,13 +30,16 @@ $config = [
         'dbAi' => $dbAi,
     ],
     'params' => $params,
-    /*
     'controllerMap' => [
-        'fixture' => [ // Fixture generation command line.
-            'class' => 'yii\faker\FixtureController',
+        // The app runs on the imported training ERP (erp_training). Our migrations only add
+        // `ai_*` tables and `v_*` views; they live in their own folder and history table so
+        // they can never collide with the ERP's 1288 tables. (migrations/demo = the old demo DB.)
+        'migrate' => [
+            'class' => \yii\console\controllers\MigrateController::class,
+            'migrationPath' => '@app/migrations/training',
+            'migrationTable' => 'ai_migration',
         ],
     ],
-    */
 ];
 
 if (YII_ENV_DEV) {

@@ -21,7 +21,7 @@ $items = [
 // Demo role switcher: two clicks to become any seeded employee.
 $switchItems = [];
 if (!empty(Yii::$app->params['demoRoleSwitcher'])) {
-    foreach (Employee::find()->where(['status' => 'active'])->orderBy('id')->all() as $u) {
+    foreach (Employee::demoPeople() as $u) {
         $switchItems[] = [
             'label' => Html::encode($u->full_name)
                 . ' <span class="badge role-badge role-' . Html::encode($u->role) . '">'

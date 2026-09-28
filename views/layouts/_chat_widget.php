@@ -19,9 +19,9 @@ use yii\helpers\Url;
 ChatWidgetAsset::register($this);
 
 $suggestions = [
-    'employee' => ["What's our leave policy?", 'How many leave days do I have left?', "What's the average salary in engineering?", 'How many times was I late in the last month?'],
-    'manager' => ['Who on my team has pending leave?', 'How many leave days do I have left?', "What's the average salary in engineering?", 'Who in my team was absent recently?'],
-    'dept_head' => ['Who on my team has pending leave?', 'How many people are in my department?', "What's the average salary in engineering?", 'Which leave type is used most in my department this year?'],
+    'employee' => ["What's our leave policy?", 'How many casual leave days do I have left?', "What's the average salary in engineering?", 'How many days was I late in January 2026?'],
+    'manager' => ['Who on my team has pending leave?', 'How many leave days do I have left?', "How was my team's attendance in January 2026?", "What's the average salary in engineering?"],
+    'dept_head' => ['Who in my department has pending leave?', 'How many people are in my department?', 'Which leave type is used most in my department this year?', "What's the average salary in engineering?"],
     'hr' => ["What's the average salary in engineering?", 'Who has taken the most sick leave this year?', 'List all pending leave requests', 'Who joined most recently?'],
     'ceo' => ['Show total payroll by department', "What's the average salary in engineering?", 'Headcount by department', 'How many leave requests are pending company-wide?'],
 ][$me->role] ?? [];

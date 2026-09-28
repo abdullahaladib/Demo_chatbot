@@ -71,15 +71,16 @@ class SecurityTestController extends Controller
     private function presets(): array
     {
         return [
-            'My leave balance (self-scoped)' => "SELECT leave_type, entitled, used, remaining\nFROM v_my_leave_balance\nWHERE employee_id = :me AND year = YEAR(CURDATE())",
-            'Row-scope bypass attempt (OR 1=1)' => "SELECT DISTINCT employee_id FROM v_my_attendance\nWHERE employee_id = :me OR 1=1",
-            'Average salary in Engineering' => "SELECT ROUND(AVG(gross_salary)) AS avg_salary\nFROM v_hr_employees_full\nWHERE department = 'Engineering'",
-            'Base table: salaries' => 'SELECT AVG(basic) FROM salaries',
+            'My leave balance (self-scoped)' => "SELECT leave_type, entitled, used, remaining\nFROM v_my_leave_balance\nWHERE employee_id = :me",
+            'Row-scope bypass attempt (OR 1=1)' => "SELECT DISTINCT employee_id FROM v_my_attendance_daily\nWHERE employee_id = :me OR 1=1",
+            'Average salary in Engineering' => "SELECT ROUND(AVG(gross_salary)) AS avg_salary\nFROM v_hr_employees_full\nWHERE department = 'Engineer' AND employment_status = 'Active'",
+            'ERP base table: salary_info' => 'SELECT AVG(gross_salary) FROM salary_info',
+            'ERP login table (password hashes)' => 'SELECT username, password FROM user_activity_management',
             'Missing :me' => 'SELECT * FROM v_my_leave_balance',
-            'Pending leave in my department (:dept)' => "SELECT employee_name, leave_type, start_date, days\nFROM v_dept_leave_requests\nWHERE department_id = :dept AND status = 'pending'",
-            "My team's pending leave (manager_id = :me)" => "SELECT employee_name, leave_type, start_date, days\nFROM v_team_leave_requests\nWHERE manager_id = :me AND status = 'pending'",
+            'Pending leave in my department (:dept)' => "SELECT employee_name, leave_type, start_date, days\nFROM v_dept_leave_requests\nWHERE department_id = :dept AND status = 'Pending'",
+            "My team's pending leave (supervisor_id = :me)" => "SELECT employee_name, depth, leave_type, start_date, days\nFROM v_team_leave_requests\nWHERE supervisor_id = :me AND status = 'Pending'",
             'Non-SELECT (UPDATE)' => 'UPDATE v_hr_payroll SET basic_salary = 1',
-            'Stacked statements' => 'SELECT 1; DROP TABLE employees',
+            'Stacked statements' => 'SELECT 1; DROP TABLE salary_info',
             'Comment smuggling' => 'SELECT full_name FROM v_employee_directory -- WHERE 1=0',
             'LIMIT 5000 (rewritten to 200)' => 'SELECT full_name, department FROM v_employee_directory LIMIT 5000',
             'INFORMATION_SCHEMA probe' => 'SELECT table_name FROM information_schema.tables',

@@ -1,7 +1,7 @@
 # Demo ERP + AI assistant
 
-A deliberately small ERP (10 employees, 4 departments) with a chat assistant bolted on.
-It exists to demonstrate one architecture:
+A chat assistant bolted onto a **copy of a real training ERP database** (1,288 tables, a
+software company with 34 active employees). It exists to demonstrate one architecture:
 
 > An employee asks a question in plain English. The AI writes the SQL **itself** (there
 > is no library of pre-written queries), but that SQL can only ever run against
@@ -29,7 +29,7 @@ AI calls are plain `curl`. No LLM SDK, no vector database, no Node.
 1. [The security model](#the-security-model-four-layers)
 2. [Why two MySQL accounts](#why-two-mysql-accounts)
 3. [Why views cannot be parameterised, and how :me / :dept solve it](#why-views-cannot-be-parameterised-and-how-me--dept-solve-it)
-4. [Roles and what each can see](#the-five-roles)
+4. [The data](#the-data-a-copy-of-the-training-erp) and [roles](#the-five-roles)
 5. [Request flow](#request-flow)
 6. [Why no vector store](#why-no-vector-store)
 7. [Known limitations](#known-limitations)
@@ -59,22 +59,24 @@ flowchart TD
 
 | Account | Privileges | Used by |
 |---|---|---|
-| `erp_app` | All privileges on the `erp_demo` schema | The application itself, and migrations |
-| `erp_ai_ro` | `SELECT` on the 20 `v_*` views. **Nothing else.** | Only the code path that executes AI-generated SQL |
+| `erp_app` | All privileges on the `erp_training` schema | The application itself, and migrations |
+| `erp_ai_ro` | `SELECT` on the 25 `v_*` views. **Nothing else.** | Only the code path that executes AI-generated SQL |
 
 This is the output of `SHOW GRANTS FOR 'erp_ai_ro'@'127.0.0.1'`:
 
 ```
 GRANT USAGE ON *.* TO `erp_ai_ro`@`127.0.0.1`
-GRANT SELECT ON `erp_demo`.`v_dept_attendance` TO `erp_ai_ro`@`127.0.0.1`
-GRANT SELECT ON `erp_demo`.`v_dept_employees` TO `erp_ai_ro`@`127.0.0.1`
-... (one line per view, 20 in total) ...
-GRANT SELECT ON `erp_demo`.`v_team_leave_requests` TO `erp_ai_ro`@`127.0.0.1`
+GRANT SELECT ON `erp_training`.`v_dept_attendance_monthly` TO `erp_ai_ro`@`127.0.0.1`
+GRANT SELECT ON `erp_training`.`v_dept_employees` TO `erp_ai_ro`@`127.0.0.1`
+... (one line per view, 25 in total) ...
+GRANT SELECT ON `erp_training`.`v_team_members` TO `erp_ai_ro`@`127.0.0.1`
 ```
 
-`USAGE` means "may log in"; it grants nothing. There is no line for `employees`,
-`salaries` or any other base table, and no `INSERT`, `UPDATE`, `DELETE`, `CREATE`,
-`DROP`, `FILE` or `PROCESS` anywhere.
+`USAGE` means "may log in"; it grants nothing. There is no line for any of the ERP's
+**1,288 base tables** (`personnel_basic_info`, `salary_info`, the login table with its password
+hashes, accounting, sales...), none for the internal `ai_*` helper views, and no `INSERT`,
+`UPDATE`, `DELETE`, `CREATE`, `DROP`, `FILE` or `PROCESS` anywhere. The AI can reach 25
+views out of 1,300+ objects.
 
 **How can erp_ai_ro read a view over tables it cannot touch?** MySQL views default to
 `SQL SECURITY DEFINER`. A view runs with the privileges of the user who **created** it
@@ -95,10 +97,16 @@ per session:
 Views decide **which tables and which columns** a tier can reach. There is one set of
 views per *authority tier*, not one per employee.
 
-Salary lives in its own table (`salaries`), and **only three views join to it**:
+Salary lives in its own ERP table (`salary_info`), and **only three views join to it**:
 `v_hr_employees_full`, `v_hr_payroll` and `v_exec_payroll_summary`. Employee, manager and
 department-head views never touch that table, so there is no salary column sitting next
 to harmless columns waiting to be selected by mistake.
+
+Some columns are **never exposed by any view, whatever the tier**: passwords, tokens and OTPs,
+NID / TIN / CV / photo file paths, date of birth, religion, personal phone numbers, and bank
+account numbers (even HR's payroll view leaves them out). The views also clean the ERP's real
+data: zero or 1970 dates, leave rows for employees who do not exist, numeric leave-type codes
+(turned into names) and attendance flags (turned into one readable status).
 
 ### Layer 3: bound parameters for row scoping
 
@@ -147,12 +155,12 @@ database server, and it holds no matter what PHP does.
 
 With one account, a validator bug would be a data breach. With two, a validator bug means
 MySQL answers `ERROR 1142: SELECT command denied to user 'erp_ai_ro' for table
-'salaries'`. You can see this directly (the command below skips the validator on purpose):
+'salary_info'`. You can see this directly (the command below skips the validator on purpose):
 
 ```
-php yii security/raw "SELECT AVG(basic) FROM salaries"
+php yii security/raw "SELECT AVG(gross_salary) FROM salary_info"
   As erp_ai_ro@127.0.0.1, validator BYPASSED:
-  MySQL REFUSED it: SELECT command denied to user 'erp_ai_ro'@'localhost' for table 'salaries' (error 1142)
+  MySQL REFUSED it: SELECT command denied to user 'erp_ai_ro'@'localhost' for table 'salary_info' (error 1142)
 ```
 
 ---
@@ -201,6 +209,38 @@ The test suite checks exactly this case.
 
 ---
 
+## The data: a copy of the training ERP
+
+The chatbot runs on `erp_training`, an import of `trainingclouderp_training_db.sql`, a copy
+of the company's real training ERP. The dump file is **gitignored and never committed**: it
+contains personal data and password hashes, and this repository is public.
+
+- **What's in it:** a MariaDB 10.11 dump with 1,288 tables and about 565,000 rows covering HR,
+  accounting, sales, CRM, a hotel module and more. The chatbot covers **HR** for now:
+  employees, leave, attendance, salary and the directory.
+- **Import:** `php yii setup/import-training <mysql-root-password>` converts the three
+  MariaDB-only constructs MySQL 8 rejects (duplicate ENUM values, `DATE DEFAULT
+  current_timestamp()`, InnoDB strict row-size checks), then streams the dump in. The ERP's
+  own tables are otherwise untouched.
+- **App-owned tables:** everything the chatbot adds is prefixed `ai_`: tier assignments,
+  demo passwords, the knowledge base, the audit log, internal helper views. It can never
+  collide with the ERP, which already has tables such as `company_info` and `employees`.
+- **Identity:** an employee is a row of `personnel_basic_info` (key `pbi_id`, which is `:me`).
+  Sign-in uses the ERP login table (`user_activity_management`), linked by `PBI_ID`. Only
+  logins of **in-service** employees can sign in.
+
+**Findings worth knowing** (from analysing the dump):
+- **Passwords:** 74 of 76 ERP passwords are **unsalted MD5** and **2 are stored in
+  plaintext**. The chatbot never reads that column. For the demo, it issues its own bcrypt
+  passwords, and it accepts the ERP's MD5 hashes only as a fallback.
+- **Access levels:** the ERP's own access `level` is a module privilege (Report Viewer,
+  Purchase Officer...), and **52 of 76 logins are "Supreme Administrator"**. So it cannot be
+  used to decide who sees what (see below).
+- **Missing roles:** department heads are never recorded; the CEO and MD records are "Not In
+  Service"; and no active employee works in HR.
+- **Messy data:** the reporting chain has loops (36 employees sit in a circular chain, and one
+  is their own manager). There are zero dates and leave rows for employees who don't exist.
+
 ## The five roles
 
 These are five genuinely different scopes, not five labels on the same query.
@@ -208,19 +248,35 @@ These are five genuinely different scopes, not five labels on the same query.
 | Role | Rows | Salary? | Views |
 |---|---|---|---|
 | `employee` | Own rows only (`employee_id = :me`) | No | directory + `v_my_*` |
-| `manager` | Own rows + direct reports (`manager_id = :me`) | No | + `v_team_*` |
-| `dept_head` | Whole own department (`department_id = :dept`) | No | directory + `v_my_*` + `v_dept_*` (incl. leave summary) |
+| `manager` | + their reporting line (`supervisor_id = :me`) | No | + `v_team_*` |
+| `dept_head` | + the whole department they head (`department_id = :dept`) | No | + `v_dept_*` (incl. leave summary) |
 | `hr` | All employees | **Yes** | directory + `v_my_*` + `v_hr_*` |
-| `ceo` | Everything HR can see | **Yes** | + `v_exec_*` company-wide aggregates |
+| `ceo` | Everything HR sees + own reporting line | **Yes** | + `v_exec_*` company-wide summaries |
 
-- `employee` and `manager` differ by **predicate** (`:me` on `employee_id` vs on `manager_id`).
-- `manager` and `dept_head` differ by **predicate** (`manager_id` vs `department_id`).
-- `hr` and `ceo` differ from all three by **having salary columns at all**.
+**How a person's tier is decided** ([components/RoleResolver.php](components/RoleResolver.php)):
+it's worked out on the server, on every request, from org data. It is never taken from the
+request, and never from the ERP's `level` field. The first rule that matches wins:
 
-Roles are a plain `role` column on `employees` plus the PHP map in
-[config/access-map.php](config/access-map.php). Yii's RBAC is deliberately not used: for
-10 employees it would add tables and files without strengthening anything, because the
-real boundary is the MySQL grant.
+1. **An explicit assignment** in `ai_role_assignment` gives `ceo`, `hr` or `dept_head`.
+   Authority tiers are an HR decision, so they're recorded rather than guessed from job
+   titles. The demo assigns: the CTO → `ceo` (top active executive); the CTO (Operation) →
+   `dept_head` of Engineering; and a clearly labelled demo HR person → `hr`.
+2. **Line manager** (`incharge_id` or `incharge_id_2`) of at least one in-service employee →
+   `manager`.
+3. Everyone else → `employee`.
+
+**Reporting lines:** the team views use a recursive, **cycle-safe** chain. It follows both
+supervisor columns, is capped at 6 levels, and guards against the ERP's circular chains. Each
+row is an (employee, supervisor) pair with a `depth`, where 1 means a direct report. So one
+predicate, `supervisor_id = :me`, covers the whole reporting line. The validator enforces it,
+and the server wraps the view so that `OR 1=1` cannot widen it.
+
+**Small groups:** the executive payroll summary shows pay figures only for groups of **5 or
+more people**. Smaller departments show a headcount and `suppressed = yes`.
+
+Roles live in a small app table plus the PHP map in
+[config/access-map.php](config/access-map.php). Yii's RBAC is deliberately not used,
+because the real boundary is the MySQL grant.
 
 ---
 
@@ -233,12 +289,12 @@ real boundary is the MySQL grant.
    text; the tests confirm that adding `"role": "ceo"` to the body changes nothing.
 2. **The system prompt is built for that role**
    ([PromptBuilder](components/ai/PromptBuilder.php)). It contains:
-   - all `company_info` rows;
+   - all `ai_knowledge_base` rows (generated from the ERP's own leave, schedule and holiday tables);
    - the column list of **only** the views this role may use;
    - the SQL rules: `SELECT` only, one statement, `:me` / `:dept`, `LIMIT`, MySQL dialect.
 
    An employee's prompt contains no salary column and no HR view, so the model cannot even
-   see what to ask for. (`php yii security/prompt dev1@demo.local` prints the exact prompt.)
+   see what to ask for. (`php yii security/prompt tanvir` prints the exact prompt.)
 3. **The model is called with two tools**: `getUserRole()` and `runReadOnlyQuery(sql)`.
 4. **No tool call** means an information answer. If the model instead answers
    `ACCESS_DENIED: <subject>` (it saw no permitted view for the request), the server turns
@@ -280,16 +336,16 @@ store later (when the knowledge base is thousands of documents) would change onl
 
 Stated plainly rather than hidden:
 
-1. **Free-tier AI data use.** On free tiers, Google and Groq may use submitted prompts
-   and responses to improve their models. That is acceptable for this demo because every
-   name, salary and record is fabricated. With real employee data it is a **blocker**:
-   production needs a paid tier with a no-training data agreement, or a self-hosted model.
-   Note that the prompt contains the knowledge base, the view schema and the returned
-   rows, so real salary data would be sent to the provider.
-2. **Small-group aggregates are individual disclosure.** "Average salary" over a group of
-   one or two people reveals those people's pay. In this seed data, Executive and HR each
-   have **one** person. Future work: a minimum-group-size rule (for example, suppress any
-   aggregate over fewer than 5 people) enforced in the aggregate views or the validator.
+1. **Free-tier AI data use. This now matters.** On free tiers, Google (and Groq) may use
+   submitted prompts and responses to improve their models. The chatbot now runs on a
+   **copy of the real training ERP**, so the rows a question returns are sent to the
+   provider: names, leave reasons, and for HR and executives, salaries. Before using it with
+   anything beyond a controlled demo, move to a paid tier with a no-training / data-processing
+   agreement, or a self-hosted model.
+2. **Small-group aggregates.** "Average salary" over one or two people reveals their pay.
+   The executive payroll summary now **suppresses pay figures for groups under 5**, and most
+   departments here have 1 to 3 people. HR's own views are row-level by design (HR may see
+   individual salaries), so the rule applies only to the summaries.
 3. **Tier separation between views is enforced by the validator, not by MySQL.** There is
    one `erp_ai_ro` account for all roles, holding `SELECT` on every view. MySQL guarantees
    that **no role can reach a base table or write anything**; it is the PHP validator that
@@ -316,37 +372,29 @@ Stated plainly rather than hidden:
 ## Setup
 
 Prerequisites: PHP 8.x with `pdo_mysql`, `mbstring`, `openssl`, `curl`, `intl`; MySQL 8;
-Composer.
+Composer; and the dump file `trainingclouderp_training_db.sql` in the project root. The dump
+is **gitignored**; copy it to each machine separately.
 
 ```bash
 # 1. Dependencies (Yii only)
 composer install
 
 # 2. Local settings. In THIS demo repo, config/db-local.php and config/ai.php are committed
-#    on purpose so every device can pull and run (fabricated data only). In a real project
-#    they would be gitignored and created from the *.example templates:
-#    cp config/db-local.php.example config/db-local.php   # set passwords + cookie key
-#    cp config/ai.php.example      config/ai.php
-#    The API KEY is never committed: put it in the gitignored config/ai-local.php
+#    on purpose so every device can pull and run. The AI API KEY is never committed:
 cp config/ai-local.php.example config/ai-local.php     # paste your Gemini (or Groq) API key
 
-# Steps 3-5 in one go:  php yii setup/database <mysql-root-password>
+# 3. Everything database-related, in one go (~7 minutes):
+#    erp_app account -> import the training dump into erp_training -> migrations
+#    (ai_* tables, demo people + passwords, views, knowledge base) -> erp_ai_ro grants
+php yii setup/database <mysql-root-password>
 
-# 3. Database + privileged account - run ONCE as MySQL root
-#    (replace __ERP_APP_PASSWORD__ with the 'app' password from db-local.php)
-mysql -u root -p < sql/00-bootstrap.sql
-
-# 4. Schema, seed data and views
-php yii migrate
-
-# 5. The restricted AI account - run as MySQL root AFTER migrating
-#    (replace __ERP_AI_RO_PASSWORD__ with the 'ai' password from db-local.php)
-mysql -u root -p < sql/01-ai-readonly-user.sql
-
-# 6. Run
+# 4. Run
 php yii serve localhost:8080
-#    open http://localhost:8080 - every demo account's password is Demo@1234
+#    open http://localhost:8080 - every demo login's password is Demo@1234
 ```
+
+Re-running `setup/database` (or `php yii setup/import-training <root-password>` followed by
+`php yii migrate`) rebuilds `erp_training` from the dump from scratch.
 
 **`localhost` vs `127.0.0.1`.** MySQL treats `'user'@'localhost'` and
 `'user'@'127.0.0.1'` as **different accounts**. Both SQL scripts create both. Use
@@ -358,10 +406,6 @@ anonymous `''@'localhost'` row in `mysql.user` taking precedence.
 provider. The client uses the Windows certificate store (`CURLSSLOPT_NATIVE_CA`) and keeps
 TLS verification on. Set `caBundle` in `config/ai.php` if you need a specific
 `cacert.pem`.
-
-**Refreshing demo dates.** Leave requests and attendance are dated relative to the day the
-seed ran. Right before the demo, run `php yii migrate/redo 2` (views + seed) so the
-"pending" requests are still in the future. The numbers stay the same (fixed random seed).
 
 ---
 
@@ -378,13 +422,27 @@ starts fresh for each user: switching user or signing out clears it. The header 
 (show the generated SQL), **expand** (a wider window for the projector), **clear** and
 **close**.
 
+**Demo logins** (password `Demo@1234` for all; also in the Switch user menu):
+
+| Username | Person | Tier |
+|---|---|---|
+| `bimol` | Bimol Chandra Das, Chief Technical Officer | Executive (assigned) |
+| `hr.demo` | Farzana Rahman (Demo HR), HR Manager, created for the demo | HR (assigned) |
+| `1005` | Payer Alam Rony, CTO (Operation) | Department Head of Engineering (assigned) |
+| `1002` | Kawsar Mahmud, Sr. Project Manager | Manager (3 direct reports, derived) |
+| `tanvir` | Tanvir Ahmmed, Jr. Software Engineer | Employee |
+| `1954` | Md Nizam Uddin (Tanim), Software Engineer | Employee |
+
 | # | Sign in as | Ask | Expected |
 |---|---|---|---|
-| 1 | `dev1@demo.local` (Employee) | "what's our leave policy?" | **Info path.** Answered from the knowledge base. No SQL. |
-| 2 | `dev1@demo.local` | "how many leave days do I have left?" | **Data path.** `v_my_leave_balance`, `:me` bound to dev1. Annual 16 of 20. |
-| 3 | `dev1@demo.local` | "what's the average salary in engineering?" | **Refused**: "You're not authorised to access salary information." |
-| 4 | `enghead@demo.local` (Dept Head) | "who on my team has pending leave?" | **Data path.** `v_dept_leave_requests`, `:dept` bound to Engineering. 5 pending requests (Arif ×2, Sadia, Rakibul, Farhana). |
-| 5 | `hr@demo.local` (HR) | the exact question from #3 | **Answered**: BDT 218,400 average gross monthly salary across 5 engineers. |
+| 1 | `tanvir` (Employee) | "what's our leave policy?" | **Info path.** From the knowledge base (built from the ERP's leave types): Casual 15 days, Sick 6... No SQL. |
+| 2 | `tanvir` | "how many casual leave days do I have left?" | **Data path.** `v_my_leave_balance`, `:me` bound to 1960. 13 of 15 left. |
+| 3 | `tanvir` | "what's the average salary in engineering?" | **Refused**: "You're not authorised to access salary information." |
+| 4 | `1005` (Dept Head) | "who in my department has pending leave?" | **Data path.** `v_dept_leave_requests`, `:dept` bound to 10 (Engineer). |
+| 5 | `hr.demo` (HR) | the exact question from #3 | **Answered**: about BDT 66,429 average gross monthly salary (17 engineers with a salary on record). |
+
+Bonus: `1002` (Manager) asks "who on my team has pending leave?". The answer covers his
+reporting line only (`supervisor_id = :me`).
 
 **#3 and #5 are the same sentence with different outcomes. That is the whole point.**
 
@@ -392,12 +450,12 @@ Suggested talking points for #3:
 
 1. Tick **SQL** in the chat window's header (and click **expand** so it is readable). The
    refusal card says *"The model found no permitted view for this and generated no SQL"*.
-2. Open **Security test bench** as dev1 and expand "System prompt the AI receives for this
+2. Open **Security test bench** as tanvir and expand "System prompt the AI receives for this
    role". There is no salary column in it anywhere: the model cannot write a query for
    something it was never told exists.
 3. On the bench, run the preset **"Average salary in Engineering"**. Even if the model
    *had* guessed the HR view name, the validator refuses it.
-4. In a terminal, `php yii security/raw "SELECT AVG(basic) FROM salaries"`. Even if the
+4. In a terminal, `php yii security/raw "SELECT AVG(gross_salary) FROM salary_info"`. Even if the
    validator had a bug, **MySQL itself** refuses (error 1142).
 5. Show `SHOW GRANTS FOR 'erp_ai_ro'@'127.0.0.1';`: only view grants.
 6. Open **Audit log**: the refusal was recorded with its reason.
@@ -412,13 +470,13 @@ Repeatable checks, one per build phase. Start the server first (`php yii serve`)
 HTTP checks drive it like a browser.
 
 ```bash
-php yii verify/all      # phases 1-6, no AI key needed (the AI is replaced by a scripted stand-in)
+php yii verify/all      # phases 1-6 (151 checks), no AI calls (the AI is replaced by a scripted stand-in)
 php yii verify/phase4   # just the permission layer: allowed / refused / :me / LIMIT / injection cases
 php yii verify/demo     # the five demo questions LIVE against the configured AI provider
 
-php yii security/prompt dev1@demo.local                        # exact system prompt for a user
-php yii security/check  dev1@demo.local "SELECT ... :me ..."   # validator + dbAi as that user
-php yii security/raw    "SELECT AVG(basic) FROM salaries"      # bypass validator: MySQL alone
+php yii security/prompt tanvir                                     # exact system prompt for a user
+php yii security/check  tanvir "SELECT ... :me ..."                # validator + dbAi as that user
+php yii security/raw    "SELECT AVG(gross_salary) FROM salary_info" # bypass validator: MySQL alone
 ```
 
 `verify/phase5` includes a **malicious scripted model** that tries base tables, guessed HR
@@ -432,9 +490,12 @@ views, `OR 1=1`, missing `:me` and `DELETE`. All are refused or neutralised by t
 |---|---|
 | [config/access-map.php](config/access-map.php) | Role → allowed views → required scope. Single source of truth. |
 | [config/db.php](config/db.php), [config/db-ai.php](config/db-ai.php) | The two connections (`db` = erp_app, `dbAi` = erp_ai_ro) |
-| `config/db-local.php`, `config/ai.php` | Local secrets, gitignored (`*.example` files are committed) |
-| [sql/](sql/) | Bootstrap and restricted-account scripts, run manually as root |
-| [migrations/](migrations/) | Schema (3), seed data (1), views (1) |
+| `config/db-local.php`, `config/ai.php` | DB passwords and AI settings (committed for this demo); API keys go in the gitignored `config/ai-local.php` |
+| [sql/](sql/) | Bootstrap and restricted-account scripts (run by `php yii setup/database`) |
+| [migrations/training/](migrations/training/) | `ai_*` tables, demo people + passwords, the 25 views (+6 helpers), knowledge base (history table `ai_migration`) |
+| [migrations/demo/](migrations/demo/) | The earlier self-made demo schema (kept for reference, not used) |
+| [components/TrainingDumpConverter.php](components/TrainingDumpConverter.php) | MariaDB → MySQL 8 fixes for the training dump |
+| [components/RoleResolver.php](components/RoleResolver.php) | Decides each person's tier from org data |
 | [components/ai/SqlValidator.php](components/ai/SqlValidator.php) | Layer 4 |
 | [components/ai/QueryExecutor.php](components/ai/QueryExecutor.php) | Layer 3: binds :me / :dept from the session, runs on dbAi |
 | [components/ai/QueryGateway.php](components/ai/QueryGateway.php) | The one path from any SQL (AI or test bench) to the database |

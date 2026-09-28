@@ -36,7 +36,7 @@ $config = [
         ],
         'user' => [
             'identityClass' => \app\models\Employee::class,
-            'enableAutoLogin' => true,
+            'enableAutoLogin' => false, // ERP logins have no auth key; session-only sign-in
             'loginUrl' => ['site/login'],
         ],
         'errorHandler' => [

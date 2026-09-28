@@ -32,7 +32,7 @@ class ChatAuditLog extends ActiveRecord
 
     public static function tableName(): string
     {
-        return '{{%chat_audit_log}}';
+        return 'ai_chat_audit_log';
     }
 
     /**

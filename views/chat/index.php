@@ -16,7 +16,7 @@ $this->title = 'Demo Chatbot Testing Interface';
 ?>
 <div class="py-4">
     <div class="demo-hero p-4 p-md-5 mb-4">
-        <div class="small text-uppercase fw-semibold mb-2" style="letter-spacing:.08em; opacity:.85">Demo environment &middot; fabricated data</div>
+        <div class="small text-uppercase fw-semibold mb-2" style="letter-spacing:.08em; opacity:.85">Demo environment &middot; copy of the training ERP database</div>
         <h1 class="display-6 fw-bold mb-3">Demo Chatbot Testing Interface</h1>
         <p class="lead mb-0">
             This page is only a backdrop for testing the ERP Assistant. Click the

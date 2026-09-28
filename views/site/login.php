@@ -12,7 +12,7 @@ use yii\bootstrap5\Html;
 $this->title = 'Sign in';
 $demoUsers = empty(Yii::$app->params['demoRoleSwitcher'])
     ? []
-    : Employee::find()->with('department')->where(['status' => 'active'])->orderBy('id')->all();
+    : Employee::demoPeople();
 ?>
 <div class="row justify-content-center py-4">
     <div class="col-md-5 mb-4">
@@ -21,9 +21,8 @@ $demoUsers = empty(Yii::$app->params['demoRoleSwitcher'])
                 <h1 class="h4 fw-bold mb-3"><?= Html::encode($this->title) ?></h1>
 
                 <?php $form = ActiveForm::begin(['id' => 'login-form']); ?>
-                <?= $form->field($model, 'email')->textInput(['autofocus' => true, 'placeholder' => 'dev1@demo.local']) ?>
+                <?= $form->field($model, 'username')->textInput(['autofocus' => true, 'placeholder' => 'tanvir']) ?>
                 <?= $form->field($model, 'password')->passwordInput() ?>
-                <?= $form->field($model, 'rememberMe')->checkbox() ?>
                 <div class="d-grid">
                     <?= Html::submitButton('Sign in', ['class' => 'btn btn-primary', 'name' => 'login-button']) ?>
                 </div>
@@ -45,7 +44,7 @@ $demoUsers = empty(Yii::$app->params['demoRoleSwitcher'])
                     <?php foreach ($demoUsers as $u): ?>
                         <?= Html::a(
                             '<span><strong>' . Html::encode($u->full_name) . '</strong>'
-                            . ' <span class="text-body-secondary small">' . Html::encode($u->email) . '</span></span>'
+                            . ' <span class="text-body-secondary small">' . Html::encode($u->erpUser->username ?? '') . '</span></span>'
                             . '<span><span class="badge role-badge role-' . Html::encode($u->role) . '">'
                             . Html::encode($u->getRoleLabel()) . '</span> '
                             . '<span class="text-body-secondary small">' . Html::encode($u->department->name ?? '') . '</span></span>',

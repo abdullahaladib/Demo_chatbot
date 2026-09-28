@@ -15,21 +15,21 @@ use yii\helpers\Console;
 /**
  * Demo helpers for showing the permission layer from a terminal.
  *
- *   php yii security/prompt dev1@demo.local
+ *   php yii security/prompt tanvir
  *       Print the exact system prompt that role's AI receives.
  *
- *   php yii security/check dev1@demo.local "SELECT ..."
+ *   php yii security/check tanvir "SELECT ..."
  *       Run SQL through the validator + dbAi as that user (same path as the AI tool).
  *
- *   php yii security/raw "SELECT AVG(basic) FROM salaries"
+ *   php yii security/raw "SELECT AVG(gross_salary) FROM salary_info"
  *       BYPASS the validator and send SQL straight to MySQL as erp_ai_ro, to show that
  *       the grant alone refuses base tables. Console-only (operator access) by design.
  */
 class SecurityController extends Controller
 {
-    public function actionPrompt(string $email): int
+    public function actionPrompt(string $username): int
     {
-        $employee = $this->employee($email);
+        $employee = $this->employee($username);
         if ($employee === null) {
             return ExitCode::DATAERR;
         }
@@ -37,9 +37,9 @@ class SecurityController extends Controller
         return ExitCode::OK;
     }
 
-    public function actionCheck(string $email, string $sql): int
+    public function actionCheck(string $username, string $sql): int
     {
-        $employee = $this->employee($email);
+        $employee = $this->employee($username);
         if ($employee === null) {
             return ExitCode::DATAERR;
         }
@@ -74,11 +74,12 @@ class SecurityController extends Controller
         return ExitCode::OK;
     }
 
-    private function employee(string $email): ?Employee
+    private function employee(string $username): ?Employee
     {
-        $e = Employee::findByEmail($email);
+        $u = \app\models\ErpUser::findByUsername($username);
+        $e = $u ? Employee::findIdentity((int) $u->PBI_ID) : null;
         if ($e === null) {
-            $this->stderr("No active employee with email $email\n", Console::FG_RED);
+            $this->stderr("No in-service employee with ERP username $username\n", Console::FG_RED);
         }
         return $e;
     }
