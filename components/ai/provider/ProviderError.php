@@ -16,6 +16,7 @@ final class ProviderError extends \RuntimeException
     public const MODEL_UNAVAILABLE = 'model_unavailable';
     public const NETWORK = 'network';
     public const BAD_RESPONSE = 'bad_response';
+    public const FIXTURE_MISSING = 'fixture_missing';
 
     public function __construct(
         public readonly string $category,
@@ -28,10 +29,11 @@ final class ProviderError extends \RuntimeException
     public function userMessage(): string
     {
         return match ($this->category) {
-            self::NOT_CONFIGURED => 'The AI assistant is not configured yet: add an API key in config/ai.php.',
-            self::RATE_LIMITED => 'The AI service is rate-limiting us right now (free tier). Please try again in a minute.',
-            self::AUTH => 'The AI service rejected our API key. Check the key in config/ai.php.',
+            self::NOT_CONFIGURED => 'The AI assistant is not configured yet: add an API key in config/ai-local.php.',
+            self::RATE_LIMITED => 'The AI service is busy right now. Please try again in a moment.',
+            self::AUTH => 'The AI service rejected our API key. Check the key in config/ai-local.php.',
             self::MODEL_UNAVAILABLE => 'The configured AI model is not available for this API key. Switch the model in config/ai.php.',
+            self::FIXTURE_MISSING => 'Replay mode is on and there is no recorded answer for this question. Record it first, or set \'mode\' => \'live\' in config/ai.php.',
             default => 'The AI service is unavailable right now. Please try again shortly.',
         };
     }

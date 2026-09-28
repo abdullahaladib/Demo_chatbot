@@ -32,7 +32,7 @@ final class GeminiProvider implements LlmProvider
         private readonly string $modelName,
         private readonly string $baseUrl,
         private readonly float $temperature,
-        private readonly HttpJson $http,
+        private readonly Transport $http,
         private readonly ?array $thinkingConfig = null,
     ) {
     }

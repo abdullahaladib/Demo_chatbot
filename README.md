@@ -255,12 +255,49 @@ real boundary is the MySQL grant.
    `denied` or `error`, with the generated SQL, denial reason, row count, latency, provider
    and model. `employee_id` has no foreign key, so audit rows survive employee deletion.
 
-**AI provider.** Primary is Google Gemini (`gemini-2.5-flash`, free tier). Fallback is
-Groq `openai/gpt-oss-120b` (free, OpenAI-compatible API). The choice is one line in
-`config/ai.php`. Temperature is 0, so the same question gives the same SQL on the
-projector. The Gemini client uses the REST `generateContent` API and sends the model's
-previous turn back exactly as received (including `thoughtSignature`), which is required
-for newer Gemini models' function calling.
+### AI providers
+
+The provider is one line in `config/ai.php` (`'provider' => 'mistral'`). API keys live in
+the gitignored `config/ai-local.php`. Temperature is 0, so the same question gives the same
+SQL on the projector.
+
+| Role | Provider | Model | Client | Free-tier limits (checked 2026-09-28) |
+|---|---|---|---|---|
+| **Primary** | Mistral (`api.mistral.ai/v1`) | `ministral-14b-latest` | OpenAI-compatible | ~1B tokens/month; **30 requests/minute for this model**. `mistral-large`, `-medium`, `-small` and `magistral` are **not included** in free mode (HTTP 403 / 0 requests per minute). `codestral-latest` (125/min) and `ministral-8b-latest` (188/min) are also available. On a paid tier, switch the model to `mistral-large-latest`. |
+| Fallback | Google Gemini | `gemini-3.6-flash` | native `generateContent` | small per-minute and per-day quotas; `gemini-2.5-*` is closed to new keys |
+| Fallback | Groq | `openai/gpt-oss-120b` | OpenAI-compatible | free, rate-limited |
+
+- **One client for Mistral and Groq.** Both speak the OpenAI chat-completions dialect
+  (`tools` / `tool_calls`), so one class (`OpenAiCompatibleProvider`) serves both, and the
+  instances differ only by config: base URL, model, key, and whether the tool-result
+  message carries the function `name` (Mistral's schema has it; Groq's doesn't). Gemini
+  keeps its own native client (`functionDeclarations` / `functionCall`, and the model's
+  turn is sent back verbatim, including `thoughtSignature`). Tool-call parsing is per
+  provider; the chat flow only sees a normalised "text + tool calls" result.
+- **Throttle.** One chat turn makes 2 or 3 API calls back to back (question → tool result →
+  final wording). Every call waits until at least `minIntervalMs` has passed since the
+  previous call to that provider, **across all requests** (2100 ms for ministral-14b's
+  30/min; 1100 ms would suit a 1 request/second limit).
+- **429 retry.** HTTP 429 (and 503) is retried with exponential backoff (1.5 s, 3 s), at most
+  3 attempts. If it still fails, the user sees *"The AI service is busy right now. Please
+  try again in a moment."*, never an HTTP code or raw error.
+
+### Quota discipline: response cache and replay mode
+
+- **Response cache.** A finished turn (answer, generated SQL, rows) is cached, keyed on
+  **user + role + normalised question + provider/model + data version**. Asking again costs
+  no API call, so rehearsing the demo questions is free. The user is part of the key on
+  purpose: keyed on role alone, dev2 would receive dev1's cached leave balance. The data
+  version changes whenever the seed is re-run or the knowledge base is edited, so stale
+  answers expire on their own. Only successful turns are cached; errors never are. Cached
+  answers are still audited (provider shown as `mistral (cached)`), and the chat's SQL panel
+  shows a **cached · no AI call** badge. Bypass with `'cache' => ['enabled' => false]`; clear
+  with `php yii ai-cache/clear`.
+- **Replay mode.** `'mode' => 'replay'` answers from recorded responses in
+  `tests/fixtures/ai/` with **no network and no key**. The tools still run for real
+  (validator, `:me`/`:dept` binding, `dbAi`, audit); only the model's replies are canned.
+  `'mode' => 'record'` calls the API and saves each response. Recordings of the five demo
+  questions are committed (request bodies and responses only, never headers or keys).
 
 ---
 
@@ -280,12 +317,13 @@ store later (when the knowledge base is thousands of documents) would change onl
 
 Stated plainly rather than hidden:
 
-1. **Free-tier AI data use.** On free tiers, Google and Groq may use submitted prompts
-   and responses to improve their models. That is acceptable for this demo because every
-   name, salary and record is fabricated. With real employee data it is a **blocker**:
-   production needs a paid tier with a no-training data agreement, or a self-hosted model.
-   Note that the prompt contains the knowledge base, the view schema and the returned
-   rows, so real salary data would be sent to the provider.
+1. **Free-tier AI data use.** Mistral's Free mode **trains on your inputs unless you opt out**
+   in the account settings. The owner of this demo account **has opted out**. Even so, the
+   prompt contains the knowledge base, the view schema and the returned rows, so real
+   salary data would be sent to a third party. That is acceptable here because every name,
+   salary and record is fabricated. With real employee data it is a **blocker** until there
+   is a paid tier with a contractual no-training and data-processing agreement, or a
+   self-hosted model. (The Gemini and Groq fallbacks have their own free-tier data terms.)
 2. **Small-group aggregates are individual disclosure.** "Average salary" over a group of
    one or two people reveals those people's pay. In this seed data, Executive and HR each
    have **one** person. Future work: a minimum-group-size rule (for example, suppress any
@@ -305,11 +343,13 @@ Stated plainly rather than hidden:
 6. **The demo role switcher** (become any user without a password) is a demo convenience
    controlled by `params['demoRoleSwitcher']` in [config/params.php](config/params.php).
    Turn it off for anything else.
-7. **Gemini model availability.** Google now restricts `gemini-2.5-*` to accounts that
-   have used it before. If a new key gets "model not available", set the model in
-   `config/ai.php` to `gemini-3.8-flash`, or switch `provider` to `groq`.
-8. **Rate limits.** Free tiers throttle. A throttled request produces a clean "try again
-   in a minute" message and an `error` audit row, not a crash.
+7. **Model quality on the free tier.** Mistral's free mode excludes its large and medium
+   models, so the demo runs on `ministral-14b-latest`. It passes all five demo questions,
+   but a larger model would be more robust on unusual phrasings. Whatever the model, a
+   mistake can only produce a refusal or a retry, never a data leak (layers 1 to 4).
+8. **Rate limits.** Free tiers throttle. Calls are spaced by the throttle and 429s are
+   retried; if the service is still busy, the user gets a clean "try again" message and an
+   `error` audit row, not a crash.
 
 ---
 
@@ -328,7 +368,7 @@ composer install
 #    cp config/db-local.php.example config/db-local.php   # set passwords + cookie key
 #    cp config/ai.php.example      config/ai.php
 #    The API KEY is never committed: put it in the gitignored config/ai-local.php
-cp config/ai-local.php.example config/ai-local.php     # paste your Gemini (or Groq) API key
+cp config/ai-local.php.example config/ai-local.php     # paste your Mistral API key (Gemini/Groq optional)
 
 # Steps 3-5 in one go:  php yii setup/database <mysql-root-password>
 
@@ -412,9 +452,12 @@ Repeatable checks, one per build phase. Start the server first (`php yii serve`)
 HTTP checks drive it like a browser.
 
 ```bash
-php yii verify/all      # phases 1-6, no AI key needed (the AI is replaced by a scripted stand-in)
+php yii verify/all      # phases 1-7, NO AI calls (scripted model, canned provider wire formats)
 php yii verify/phase4   # just the permission layer: allowed / refused / :me / LIMIT / injection cases
-php yii verify/demo     # the five demo questions LIVE against the configured AI provider
+php yii verify/demo                   # the five demo questions LIVE (bypasses the cache)
+php yii verify/demo --aiMode=replay   # the same five from recordings: no network, no key
+php yii verify/demo --aiMode=record   # live, and re-record the fixtures
+php yii ai-cache/clear                # forget cached answers
 
 php yii security/prompt dev1@demo.local                        # exact system prompt for a user
 php yii security/check  dev1@demo.local "SELECT ... :me ..."   # validator + dbAi as that user
@@ -440,7 +483,9 @@ views, `OR 1=1`, missing `:me` and `DELETE`. All are refused or neutralised by t
 | [components/ai/QueryGateway.php](components/ai/QueryGateway.php) | The one path from any SQL (AI or test bench) to the database |
 | [components/ai/PromptBuilder.php](components/ai/PromptBuilder.php) | Role-specific system prompt |
 | [components/ai/ChatService.php](components/ai/ChatService.php) | One chat turn: tools, loop, refusal handling, audit |
-| [components/ai/provider/](components/ai/provider/) | Gemini and Groq clients (curl), scripted test provider |
+| [components/ai/provider/](components/ai/provider/) | `OpenAiCompatibleProvider` (Mistral + Groq), `GeminiProvider`, `ProviderFactory`; transports: `HttpJson` (curl + throttle + 429 retry), `RecordingTransport` / `ReplayTransport` (fixtures), `StubTransport` + `ScriptedProvider` (tests) |
+| [components/ai/ResponseCache.php](components/ai/ResponseCache.php) | Per-user answer cache (`php yii ai-cache/clear`) |
+| [tests/fixtures/ai/](tests/fixtures/ai/) | Recorded Mistral responses for the five demo questions (replay mode) |
 | [controllers/ChatController.php](controllers/ChatController.php) | Dashboard, `ask` endpoint, audit page |
 | [views/layouts/_chat_widget.php](views/layouts/_chat_widget.php), [web/js/chat-widget.js](web/js/chat-widget.js), [web/css/chat-widget.css](web/css/chat-widget.css) | The floating chat widget, on every signed-in page |
 | [controllers/SecurityTestController.php](controllers/SecurityTestController.php) | Hand-written-SQL test bench (no AI) |

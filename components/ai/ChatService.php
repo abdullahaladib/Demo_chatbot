@@ -33,8 +33,16 @@ final class ChatService
     /** A failed (not refused) query is given back to the model this many times to fix. */
     private const MAX_QUERY_RETRIES = 2;
 
-    public function __construct(private readonly ?LlmProvider $provider = null)
-    {
+    /**
+     * @param LlmProvider|null   $provider injected (tests); otherwise built from config/ai.php
+     * @param ResponseCache|null $cache    injected (tests); otherwise from config ('cache')
+     * @param string|null        $mode     override config 'mode' (live|record|replay)
+     */
+    public function __construct(
+        private readonly ?LlmProvider $provider = null,
+        private ?ResponseCache $cache = null,
+        private readonly ?string $mode = null,
+    ) {
     }
 
     /**
@@ -51,17 +59,33 @@ final class ChatService
         $state = [
             'answer' => '', 'path' => ChatAuditLog::PATH_INFO, 'role' => $employee->role,
             'queries' => [], 'table' => null, 'trace' => [],
-            'denial' => null, 'provider' => null, 'model' => null,
+            'denial' => null, 'provider' => null, 'model' => null, 'cached' => false,
         ];
+        $auditProvider = null;
 
         try {
             if ($question === '' || mb_strlen($question) > self::MAX_QUESTION_LENGTH) {
                 throw new \DomainException('Please ask a question of up to ' . self::MAX_QUESTION_LENGTH . ' characters.');
             }
-            $provider = $this->provider ?? ProviderFactory::create();
+            // Building the provider makes no network call.
+            $provider = $this->provider
+                ?? ProviderFactory::create(null, ['user' => $employee->email, 'question' => $question], $this->mode);
             $state['provider'] = $provider->name();
             $state['model'] = $provider->model();
-            $this->converse($provider, $employee, $question, $state);
+            $auditProvider = $provider->name();
+
+            $this->cache ??= ResponseCache::fromConfig();
+            $hit = $this->cache->get($employee, $question, $provider->name(), $provider->model());
+            if ($hit !== null) {
+                // Same user, role and question, same data: replay the stored turn with NO AI call.
+                $state = array_merge($state, array_intersect_key($hit, array_flip(['answer', 'path', 'queries', 'table', 'trace', 'denial'])));
+                $state['cached'] = true;
+                $state['trace'][] = ['step' => 'cache', 'detail' => 'answer served from the response cache (no AI call)'];
+                $auditProvider = substr($provider->name() . ' (cached)', 0, 30);
+            } else {
+                $this->converse($provider, $employee, $question, $state);
+                $this->cache->put($employee, $question, $provider->name(), $provider->model(), $state);
+            }
         } catch (ProviderError $e) {
             Yii::error("AI provider error [{$e->category}]: {$e->getMessage()}", __METHOD__);
             $state['path'] = ChatAuditLog::PATH_ERROR;
@@ -96,7 +120,7 @@ final class ChatService
             'denial_reason' => $state['denial'],
             'row_count' => $lastOk['rowCount'] ?? null,
             'latency_ms' => $latency,
-            'provider' => $state['provider'],
+            'provider' => $auditProvider,
             'model' => $state['model'],
         ]);
 

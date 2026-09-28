@@ -109,7 +109,8 @@
     function machinery(r) {
         let h = '<div class="machinery mt-2">';
         h += '<div class="mb-1"><span class="badge path-badge path-' + esc(r.path) + '">' + esc(PATH_LABEL[r.path] || r.path) + '</span>'
-            + ' <span class="text-body-secondary">' + esc(r.provider || '-') + ' / ' + esc(r.model || '-') + ' &middot; ' + esc(r.latencyMs) + ' ms</span></div>';
+            + ' <span class="text-body-secondary">' + esc(r.provider || '-') + ' / ' + esc(r.model || '-') + ' &middot; ' + esc(r.latencyMs) + ' ms</span>'
+            + (r.cached ? ' <span class="badge text-bg-secondary">cached &middot; no AI call</span>' : '') + '</div>';
         if (r.trace && r.trace.length) {
             h += '<ol class="trace mb-1">' + r.trace.map(t => '<li><code>' + esc(t.step) + '</code> &rarr; ' + esc(t.detail) + '</li>').join('') + '</ol>';
         }

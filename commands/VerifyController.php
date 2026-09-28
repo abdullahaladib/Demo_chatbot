@@ -22,7 +22,7 @@ class VerifyController extends Controller
 
     public function actionAll(): int
     {
-        foreach (['phase1', 'phase2', 'phase3', 'phase4', 'phase5', 'phase6'] as $phase) {
+        foreach (['phase1', 'phase2', 'phase3', 'phase4', 'phase5', 'phase6', 'phase7'] as $phase) {
             $this->runAction($phase);
         }
         return $this->summary();
@@ -151,9 +151,15 @@ class VerifyController extends Controller
     /** Base URL of a running instance (`php yii serve`) for the HTTP-level checks. */
     public string $baseUrl = 'http://localhost:8080';
 
+    /** verify/demo: AI mode override (live|record|replay); empty = config/ai.php. */
+    public string $aiMode = '';
+
+    /** verify/demo: allow answers from the response cache (default: always call the AI). */
+    public bool $useCache = false;
+
     public function options($actionID): array
     {
-        return array_merge(parent::options($actionID), ['baseUrl']);
+        return array_merge(parent::options($actionID), ['baseUrl', 'aiMode', 'useCache']);
     }
 
     public function actionPhase3(): int
@@ -395,7 +401,7 @@ class VerifyController extends Controller
         };
         $ask = function (string $email, string $question, callable $script) use ($who) {
             $before = (int) \app\models\ChatAuditLog::find()->count();
-            $out = (new \app\components\ai\ChatService(new \app\components\ai\provider\ScriptedProvider($script)))->ask($who($email), $question);
+            $out = (new \app\components\ai\ChatService(new \app\components\ai\provider\ScriptedProvider($script), \app\components\ai\ResponseCache::disabled()))->ask($who($email), $question);
             $rows = \app\models\ChatAuditLog::find()->where(['>', 'id', 0])->orderBy(['id' => SORT_DESC])->limit(1)->all();
             $out['_auditDelta'] = (int) \app\models\ChatAuditLog::find()->count() - $before;
             $out['_audit'] = $rows[0] ?? null;
@@ -551,18 +557,197 @@ class VerifyController extends Controller
     }
 
     /**
+     * Provider layer with NO network: the real Mistral/Groq (OpenAI-compatible) and Gemini
+     * clients against canned wire-format responses, throttle, 429 retry, response cache,
+     * record/replay fixtures, factory config.
+     */
+    public function actionPhase7(): int
+    {
+        $this->section('Phase 7 - AI provider layer: Mistral/Groq/Gemini wire formats, throttle, retry, cache, replay (no network)');
+        $startId = (int) \app\models\ChatAuditLog::find()->max('id');
+        $who = fn(string $email) => \app\models\Employee::findByEmail($email);
+        $dev1 = $who('dev1@demo.local');
+        $noCache = \app\components\ai\ResponseCache::disabled();
+        $tmp = Yii::getAlias('@runtime/verify-phase7');
+        \yii\helpers\FileHelper::removeDirectory($tmp);
+
+        // ---- OpenAI-compatible wire format (what Mistral returns), three rounds
+        $mistralTurns = fn() => [
+            ['choices' => [['message' => ['role' => 'assistant', 'content' => '',
+                'tool_calls' => [['id' => 'D681PevKs', 'type' => 'function', 'function' => ['name' => 'getUserRole', 'arguments' => '{}']]]]]]],
+            ['choices' => [['message' => ['role' => 'assistant', 'content' => null,
+                'tool_calls' => [['id' => 'Qx9TtR2aB', 'type' => 'function', 'function' => ['name' => 'runReadOnlyQuery',
+                    'arguments' => json_encode(['sql' => 'SELECT leave_type, remaining FROM v_my_leave_balance WHERE employee_id = :me AND year = YEAR(CURDATE()) LIMIT 10'])]]]]]]],
+            ['choices' => [['message' => ['role' => 'assistant', 'content' => 'You have 16 annual leave days left.']]]],
+        ];
+        $mk = fn(string $name, \app\components\ai\provider\Transport $t, bool $nameInTool) =>
+            new \app\components\ai\provider\OpenAiCompatibleProvider($name, 'test-key', $name === 'mistral' ? 'mistral-large-latest' : 'openai/gpt-oss-120b',
+                $name === 'mistral' ? 'https://api.mistral.ai/v1' : 'https://api.groq.com/openai/v1', 0.0, $t, ['toolMessageName' => $nameInTool]);
+
+        $stub = new \app\components\ai\provider\StubTransport($mistralTurns());
+        $r = (new \app\components\ai\ChatService($mk('mistral', $stub, true), $noCache))->ask($dev1, 'How many leave days do I have left?');
+        $this->check('Mistral client: getUserRole -> runReadOnlyQuery -> answer, data path', $r['path'] === 'data'
+            && ($r['trace'][0]['step'] ?? '') === 'getUserRole' && ($r['queries'][0]['bindings']['me'] ?? null) === $dev1->id
+            && count($r['table']['rows'] ?? []) === 4, $r['answer']);
+        [$q1, $q2, $q3] = $stub->requests + [null, null, null];
+        $this->check('request: POST .../v1/chat/completions, Bearer auth, temperature 0, model mistral-large-latest',
+            $q1['url'] === 'https://api.mistral.ai/v1/chat/completions' && in_array('Authorization: Bearer test-key', $q1['headers'], true)
+            && $q1['body']['temperature'] == 0 && $q1['body']['model'] === 'mistral-large-latest' && $q1['body']['tool_choice'] === 'auto');
+        $this->check('request: OpenAI-style tools array with both functions',
+            array_column(array_column($q1['body']['tools'], 'function'), 'name') === ['getUserRole', 'runReadOnlyQuery']
+            && $q1['body']['tools'][0]['type'] === 'function' && str_contains($q1['rawBody'], '"properties":{}'));
+        $toolMsg = array_values(array_filter($q2['body']['messages'], fn($m) => $m['role'] === 'tool'))[0] ?? [];
+        $assistant = array_values(array_filter($q2['body']['messages'], fn($m) => $m['role'] === 'assistant'))[0] ?? [];
+        $this->check('replay: assistant tool_calls message sent back before the tool result',
+            ($assistant['tool_calls'][0]['id'] ?? '') === 'D681PevKs' && array_search($assistant, $q2['body']['messages']) < array_search($toolMsg, $q2['body']['messages']));
+        $this->check('Mistral tool message: tool_call_id + name + JSON-string content',
+            ($toolMsg['tool_call_id'] ?? '') === 'D681PevKs' && ($toolMsg['name'] ?? '') === 'getUserRole'
+            && (json_decode($toolMsg['content'] ?? '', true)['role'] ?? '') === 'employee');
+        $lastTool = array_values(array_filter($q3['body']['messages'], fn($m) => $m['role'] === 'tool'));
+        $this->check('rows returned to the model as the runReadOnlyQuery result',
+            (json_decode(end($lastTool)['content'] ?? '', true)['row_count'] ?? 0) === 4);
+
+        $stub = new \app\components\ai\provider\StubTransport($mistralTurns());
+        $r = (new \app\components\ai\ChatService($mk('groq', $stub, false), $noCache))->ask($dev1, 'How many leave days do I have left?');
+        $toolMsg = array_values(array_filter($stub->requests[1]['body']['messages'], fn($m) => $m['role'] === 'tool'))[0] ?? [];
+        $this->check('same class as Groq: works, and tool message has no `name` (OpenAI schema)',
+            $r['path'] === 'data' && !array_key_exists('name', $toolMsg) && str_contains($stub->requests[0]['url'], 'api.groq.com'));
+
+        $stub = new \app\components\ai\provider\StubTransport([
+            ['choices' => [['message' => ['role' => 'assistant', 'content' => 'ACCESS_DENIED: salary information']]]],
+        ]);
+        $r = (new \app\components\ai\ChatService($mk('mistral', $stub, true), $noCache))->ask($dev1, "What's the average salary in engineering?");
+        $this->check('Mistral refusal marker -> denied, no SQL', $r['path'] === 'denied' && $r['queries'] === []
+            && $r['answer'] === "You're not authorised to access salary information.");
+
+        $stub = new \app\components\ai\provider\StubTransport([
+            ['choices' => [['message' => ['role' => 'assistant', 'content' => null,
+                'tool_calls' => [['id' => 'abc123XYZ', 'type' => 'function', 'function' => ['name' => 'runReadOnlyQuery',
+                    'arguments' => json_encode(['sql' => 'SELECT AVG(basic) FROM salaries LIMIT 1'])]]]]]]],
+        ]);
+        $r = (new \app\components\ai\ChatService($mk('mistral', $stub, true), $noCache))->ask($dev1, 'average salary?');
+        $this->check('Mistral writes base-table SQL -> refused by the server', $r['path'] === 'denied'
+            && $r['answer'] === "You're not authorised to access salary information." && count($stub->requests) === 1);
+
+        // ---- Gemini native wire format, same flow
+        $stub = new \app\components\ai\provider\StubTransport([
+            ['candidates' => [['content' => ['role' => 'model', 'parts' => [['functionCall' => ['name' => 'getUserRole', 'args' => new \stdClass()], 'thoughtSignature' => 'sig1']]]]]],
+            ['candidates' => [['content' => ['role' => 'model', 'parts' => [['functionCall' => ['name' => 'runReadOnlyQuery',
+                'args' => ['sql' => 'SELECT leave_type, remaining FROM v_my_leave_balance WHERE employee_id = :me LIMIT 10']]]]]]]],
+            ['candidates' => [['content' => ['role' => 'model', 'parts' => [['text' => 'You have 16 annual leave days left.']]]]]],
+        ]);
+        $gem = new \app\components\ai\provider\GeminiProvider('test-key', 'gemini-3.6-flash', 'https://generativelanguage.googleapis.com/v1beta', 0.0, $stub);
+        $r = (new \app\components\ai\ChatService($gem, $noCache))->ask($dev1, 'How many leave days do I have left?');
+        $this->check('Gemini client (functionDeclarations/functionCall) still works end to end', $r['path'] === 'data'
+            && count($r['table']['rows'] ?? []) === 4 && isset($stub->requests[0]['body']['tools'][0]['functionDeclarations']));
+        $this->check('Gemini replay keeps `"args":{}` an object and the thoughtSignature',
+            str_contains($stub->requests[1]['rawBody'], '"args":{}') && str_contains($stub->requests[1]['rawBody'], '"thoughtSignature":"sig1"')
+            && str_contains($stub->requests[1]['rawBody'], '"functionResponse"'));
+
+        // ---- throttle: consecutive calls at least minIntervalMs apart
+        $throttle = new \app\components\ai\provider\Throttle("$tmp/throttle.txt", 400);
+        $t0 = microtime(true);
+        $throttle->wait();
+        $throttle->wait();
+        $throttle->wait();
+        $elapsed = microtime(true) - $t0;
+        $this->check(sprintf('throttle: 3 calls with a 400ms interval take >= 0.8s (took %.2fs)', $elapsed), $elapsed >= 0.79);
+        $this->check('Mistral is configured with minIntervalMs >= 1100', (int) (\app\components\ai\provider\ProviderFactory::config()['providers']['mistral']['minIntervalMs'] ?? 0) >= 1100);
+
+        // ---- 429 retry with exponential backoff, max 3 attempts
+        $statuses = [429, 429, 200];
+        $http = new \app\components\ai\provider\HttpJson(5, null, null, 3, 0.05,
+            function () use (&$statuses) { return ['status' => array_shift($statuses), 'json' => ['ok' => true], 'raw' => '']; });
+        $t0 = microtime(true);
+        $res = $http->post('https://x.invalid', [], []);
+        $this->check(sprintf('429, 429, 200 -> succeeds on attempt 3 after backoff (%.2fs)', microtime(true) - $t0),
+            $res['status'] === 200 && $http->lastAttempts === 3 && microtime(true) - $t0 >= 0.14);
+        $calls = 0;
+        $busy = new \app\components\ai\provider\HttpJson(5, null, null, 3, 0.01,
+            function () use (&$calls) { $calls++; return ['status' => 429, 'json' => ['message' => 'Requests rate limit exceeded'], 'raw' => '']; });
+        $r = (new \app\components\ai\ChatService($mk('mistral', $busy, true), $noCache))->ask($dev1, 'How many leave days do I have left?');
+        $this->check('always 429 -> gives up after 3 attempts', $calls === 3);
+        $this->check('... user sees a clean "busy, try again" message, no HTTP code or raw error',
+            $r['path'] === 'error' && str_contains($r['answer'], 'busy') && !preg_match('/429|rate limit exceeded|HTTP/i', $r['answer']), $r['answer']);
+
+        // ---- response cache
+        $cache = new \app\components\ai\ResponseCache(\app\components\ai\ResponseCache::fileCache("$tmp/cache"));
+        $sends = 0;
+        $counting = function (string $q, array $results, int $round) use (&$sends) {
+            $sends++;
+            return new \app\components\ai\provider\LlmTurn('Annual leave is 20 days.');
+        };
+        $svc = fn() => new \app\components\ai\ChatService(new \app\components\ai\provider\ScriptedProvider($counting), $cache);
+        $a = $svc()->ask($dev1, "What's our leave policy?");
+        $b = $svc()->ask($dev1, "  what's our LEAVE policy  ");
+        $this->check('cache: repeat question (normalised) answered with no AI call', $sends === 1 && $b['cached'] === true && $b['answer'] === $a['answer']);
+        $lastAudit = \app\models\ChatAuditLog::find()->orderBy(['id' => SORT_DESC])->one();
+        $this->check('cache: still one audit row per turn, marked "(cached)"', $lastAudit->provider === 'scripted (cached)' && $lastAudit->path === 'info');
+        $svc()->ask($who('dev2@demo.local'), "What's our leave policy?");
+        $this->check('cache: another user (same role, same question) is NOT served dev1\'s answer', $sends === 2);
+        $cache->clear();
+        $svc()->ask($dev1, "What's our leave policy?");
+        $this->check('cache: cleared -> calls the AI again', $sends === 3);
+        $n = $sends;
+        (new \app\components\ai\ChatService(new \app\components\ai\provider\ScriptedProvider($counting), $noCache))->ask($dev1, "What's our leave policy?");
+        $this->check('cache: disabled -> always calls the AI', $sends === $n + 1);
+        $errCache = new \app\components\ai\ResponseCache(\app\components\ai\ResponseCache::fileCache("$tmp/cache2"));
+        $errs = 0;
+        $errHttp = new \app\components\ai\provider\HttpJson(5, null, null, 1, 0.01,
+            function () use (&$errs) { $errs++; return ['status' => 429, 'json' => [], 'raw' => '']; });
+        $errSvc = fn() => new \app\components\ai\ChatService($mk('mistral', $errHttp, true), $errCache);
+        $errSvc()->ask($dev1, 'x');
+        $errSvc()->ask($dev1, 'x');
+        $this->check('cache: errors are never cached', $errs === 2);
+
+        // ---- record / replay
+        $store = new \app\components\ai\provider\FixtureStore("$tmp/fixtures");
+        $dir = $store->conversationDir('mistral', $dev1->email, 'How many leave days do I have left?');
+        $rec = new \app\components\ai\provider\RecordingTransport(new \app\components\ai\provider\StubTransport($mistralTurns()), $dir,
+            ['provider' => 'mistral', 'user' => $dev1->email, 'question' => 'How many leave days do I have left?']);
+        $live = (new \app\components\ai\ChatService($mk('mistral', $rec, true), $noCache))->ask($dev1, 'How many leave days do I have left?');
+        $files = glob("$dir/*.json");
+        $this->check('record: one fixture file per API call (3)', count($files) === 3);
+        $this->check('record: fixtures never contain the API key or auth header',
+            !preg_grep('/test-key|Bearer/', array_map('file_get_contents', $files)));
+        $replayDir = $store->conversationDir('mistral', $dev1->email, 'how many leave days do I have left');
+        $replayed = (new \app\components\ai\ChatService($mk('mistral', new \app\components\ai\provider\ReplayTransport($replayDir), true), $noCache))
+            ->ask($dev1, 'how many leave days do I have left');
+        $this->check('replay: same answer, same SQL, rows re-read live through the validator', $replayed['path'] === 'data'
+            && $replayed['answer'] === $live['answer'] && $replayed['queries'][0]['sql'] === $live['queries'][0]['sql']
+            && ($replayed['queries'][0]['bindings']['me'] ?? null) === $dev1->id);
+        $miss = (new \app\components\ai\ChatService($mk('mistral', new \app\components\ai\provider\ReplayTransport(
+            $store->conversationDir('mistral', $dev1->email, 'never recorded')), true), $noCache))->ask($dev1, 'never recorded');
+        $this->check('replay: unrecorded question -> clean message, no network', $miss['path'] === 'error' && str_contains($miss['answer'], 'Replay mode'));
+
+        // ---- factory: provider is config, client class is chosen by type
+        $p = \app\components\ai\provider\ProviderFactory::create('groq', [], 'replay');
+        $this->check('factory: groq builds the OpenAI-compatible client (replay mode needs no key)',
+            $p instanceof \app\components\ai\provider\OpenAiCompatibleProvider && $p->name() === 'groq');
+        $cfg = \app\components\ai\provider\ProviderFactory::config();
+        $this->check('factory: default provider is mistral (OpenAI-compatible, api.mistral.ai/v1), temperature 0',
+            $cfg['provider'] === 'mistral' && ($cfg['providers']['mistral']['type'] ?? '') === 'openai-compatible' && ($cfg['providers']['mistral']['model'] ?? '') !== ''
+            && $cfg['providers']['mistral']['baseUrl'] === 'https://api.mistral.ai/v1' && (float) $cfg['temperature'] === 0.0);
+
+        \app\models\ChatAuditLog::deleteAll(['>', 'id', $startId]);
+        \yii\helpers\FileHelper::removeDirectory($tmp);
+        return $this->summary();
+    }
+
+    /**
      * LIVE acceptance test of the five demo questions against the configured provider.
      * Needs an API key in config/ai.php. Uses real AI calls (free-tier quota).
      */
     public function actionDemo(): int
     {
-        $this->section('Demo script - live against the configured AI provider');
         $cfg = \app\components\ai\provider\ProviderFactory::configOrDefault();
+        $mode = $this->aiMode ?: ($cfg['mode'] ?? 'live');
+        $this->section("Demo script - five questions, AI mode: $mode" . ($mode === 'replay' ? ' (recorded fixtures, NO API calls)' : ''));
         try {
-            $provider = \app\components\ai\provider\ProviderFactory::create();
+            $provider = \app\components\ai\provider\ProviderFactory::create(null, [], $mode);
             $this->stdout("  provider: {$provider->name()} / {$provider->model()}\n");
         } catch (\app\components\ai\provider\ProviderError $e) {
-            $this->stdout("  SKIPPED: {$e->getMessage()}\n  Paste a key into config/ai.php and re-run.\n");
+            $this->stdout("  SKIPPED: {$e->getMessage()}\n  Put a key in config/ai-local.php, or use --aiMode=replay.\n");
             return ExitCode::OK;
         }
 
@@ -581,13 +766,14 @@ class VerifyController extends Controller
                 && preg_match('/218[,.]?400|2,18,400/', $r['answer'])],
         ];
         foreach ($cases as [$id, $email, $q, $ok]) {
-            $r = (new \app\components\ai\ChatService())->ask($who($email), $q);
+            // Live run: bypass the response cache (unless --useCache=1) and optionally record fixtures.
+            $cache = $this->useCache ? null : \app\components\ai\ResponseCache::disabled();
+            $r = (new \app\components\ai\ChatService(null, $cache, $this->aiMode ?: null))->ask($who($email), $q);
             $this->check("$id $email: \"$q\" -> {$r['path']} ({$r['latencyMs']} ms)", (bool) $ok($r));
             $this->stdout('       answer: ' . str_replace("\n", ' ', mb_substr($r['answer'], 0, 220)) . "\n");
             foreach ($r['queries'] as $query) {
                 $this->stdout("       sql [{$query['status']}]: " . preg_replace('/\s+/', ' ', $query['sql']) . "\n");
             }
-            sleep((int) ($cfg['demoPauseSeconds'] ?? 4)); // stay under free-tier per-minute limits
         }
         return $this->summary();
     }
