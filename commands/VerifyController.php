@@ -487,22 +487,14 @@ class VerifyController extends Controller
         $http->post('/index.php?r=site/login', ['LoginForm[email]' => 'dev1@demo.local', 'LoginForm[password]' => 'Demo@1234']);
         $r = $http->get('/index.php?r=chat/ask');
         $this->check('GET chat/ask -> 405', $r['code'] === 405);
+        // An over-long question is rejected BEFORE any AI call, so this never uses the
+        // owner's free-tier quota, yet still exercises the endpoint, JSON and audit path.
         $before = (int) \app\models\ChatAuditLog::find()->count();
-        $r = $http->postJson('/index.php?r=chat/ask', ['question' => "what's our leave policy?", 'role' => 'ceo', 'employee_id' => 1]);
+        $r = $http->postJson('/index.php?r=chat/ask', ['question' => str_repeat('x', 1001), 'role' => 'ceo', 'employee_id' => 1]);
         $json = json_decode($r['body'], true) ?? [];
-        $this->check('POST chat/ask as dev1 returns JSON; role/employee_id in the body are ignored',
-            $r['code'] === 200 && ($json['role'] ?? '') === 'employee', substr($r['body'], 0, 200));
+        $this->check('POST chat/ask as dev1 returns JSON; role/employee_id in the body are ignored (no AI call)',
+            $r['code'] === 200 && ($json['role'] ?? '') === 'employee' && array_key_exists('provider', $json) && $json['provider'] === null, substr($r['body'], 0, 200));
         $this->check('... and wrote exactly one audit row', (int) \app\models\ChatAuditLog::find()->count() === $before + 1);
-        $aiConfigured = true;
-        try {
-            \app\components\ai\provider\ProviderFactory::create();
-        } catch (\app\components\ai\provider\ProviderError $e) {
-            $aiConfigured = false;
-        }
-        if (!$aiConfigured) {
-            $this->check('no API key yet -> clean "not configured" message', ($json['path'] ?? '') === 'error'
-                && str_contains($json['answer'] ?? '', 'config/ai.php'));
-        }
 
         // remove only the audit rows this verification run created, so the demo audit page starts clean
         \app\models\ChatAuditLog::deleteAll(['>', 'id', $startId]);
@@ -523,20 +515,30 @@ class VerifyController extends Controller
         $http = new \app\components\TestHttpClient($this->baseUrl);
         $r = $http->get('/index.php');
         $this->check('home (/) for a guest redirects to login', $r['code'] === 302);
+        $r = $http->get('/index.php?r=site/login');
+        $this->check('no chat widget on the sign-in page', !str_contains($r['body'], 'id="chat-widget"'));
 
         $http->post('/index.php?r=site/login', ['LoginForm[email]' => 'dev1@demo.local', 'LoginForm[password]' => 'Demo@1234']);
         $r = $http->get('/index.php');
-        $this->check('home (/) is the chat page', $r['code'] === 200 && str_contains($r['body'], 'id="ask-form"'));
+        $this->check('home (/) is the "Demo Chatbot Testing Interface" dashboard', $r['code'] === 200
+            && str_contains($r['body'], 'Demo Chatbot Testing Interface') && str_contains($r['body'], 'chat button in the bottom-right corner'));
+        $this->check('floating chat button present', str_contains($r['body'], 'id="chat-fab"') && str_contains($r['body'], 'aria-controls="chat-panel"'));
+        $this->check('chat popup is closed (hidden) in the initial markup', (bool) preg_match('/<section id="chat-panel"[^>]*\shidden>/', $r['body']));
+        $this->check('widget assets loaded', str_contains($r['body'], 'js/chat-widget.js') && str_contains($r['body'], 'css/chat-widget.css'));
         $this->check('chat shows the current role as a badge', (bool) preg_match('/id="role-badge">Employee</', $r['body']));
         $this->check('chat has the "Show generated SQL" toggle', str_contains($r['body'], 'id="toggle-sql"') && str_contains($r['body'], 'Show generated SQL'));
         $this->check('demo questions offered as suggestions', str_contains($r['body'], 'How many leave days do I have left?')
             && str_contains($r['body'], 'average salary in engineering'));
+        $this->check('widget config carries the session user id (for per-user history)',
+            str_contains($r['body'], htmlspecialchars('"userId":' . $who('dev1@demo.local')->id, ENT_QUOTES)));
 
         $r = $http->get('/index.php?r=chat/audit');
         $this->check("dev1's audit page shows own questions only", str_contains($r['body'], 'verify-q-dev1') && !str_contains($r['body'], 'verify-q-hr'));
+        $this->check('chat widget is also on the audit page', str_contains($r['body'], 'id="chat-fab"'));
 
         $r = $http->get('/index.php?r=security-test/index');
         $this->check('test bench shows the role\'s system prompt', str_contains($r['body'], 'System prompt the AI receives') && str_contains($r['body'], 'v_my_leave_balance'));
+        $this->check('chat widget is also on the test bench', str_contains($r['body'], 'id="chat-fab"'));
 
         $http->post('/index.php?r=site/switch-user', ['id' => $who('hr@demo.local')->id]);
         $r = $http->get('/index.php?r=chat/audit');

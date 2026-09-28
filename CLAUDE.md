@@ -3,11 +3,18 @@
 This file is the **single source of truth for Claude on every machine** that works on this
 repo. The owner works from several devices and syncs via git.
 
-> **RULE FOR CLAUDE: whenever you change anything in this project (code, schema, config,
-> decisions, known issues), update this file in the same commit.** Add a line to the
-> [Change log](#change-log) with the date, the device if known, and what changed. Keep the
-> sections below accurate: fix them, don't just append contradictions. Then commit and push
-> so the other devices get it on their next `git pull`.
+> **RULE FOR CLAUDE (owner instruction): update this file at EVERY step, not just at the end.**
+> Whenever you start, finish or change anything in this project (code, schema, config,
+> decisions, known issues, work in progress), update this file right then. Add a line to the
+> [Change log](#change-log) with the date, the device if known, and what changed, and keep
+> [Status / next steps](#11-status--next-steps) showing what is in progress. Keep the sections
+> accurate: fix them, don't just append contradictions. Commit it with the related change and
+> push, so the other devices get it on their next `git pull`.
+>
+> **Don't burn the AI quota:** the owner's free-tier rate limit is tiny. Never run
+> `verify/demo` or other live AI calls unless the owner explicitly asks. Test with the
+> scripted provider or stubbed `fetch` instead. Don't leave the owner's dev server on :8080
+> running, or occupy that port: use a temporary server on :8081 for tests and stop it afterwards.
 
 For the full design rationale written for humans (the boss demo), read [README.md](README.md).
 This file is the operational summary for Claude.
@@ -61,7 +68,7 @@ account (`erp_ai_ro`) that has SELECT on those views and nothing else.**
 | MySQL root | Needed only for setup. The password is machine-specific and **not stored in the repo**; ask the owner. |
 | Web | `php yii serve localhost:8080` → http://localhost:8080 |
 | Demo logins | 10 users `*@demo.local`, all with password `Demo@1234`. Use the "Switch user" menu to change identity. |
-| AI | `config/ai.php`: provider `gemini`, model **`gemini-3.8-flash`**, temperature 0. **Key in `config/ai-local.php` (gitignored, one per device; copy `config/ai-local.php.example`).** Groq fallback `openai/gpt-oss-120b`, no key yet. |
+| AI | `config/ai.php`: provider `gemini`, model **`gemini-3.6-flash`** (owner switched from 3.8 on 2026-09-28), temperature 0. **Key in `config/ai-local.php` (gitignored, one per device; copy `config/ai-local.php.example`).** Groq fallback `openai/gpt-oss-120b`, no key yet. |
 
 ## 4. Setting up a new device
 
@@ -139,13 +146,17 @@ refusal wording). Both `SqlValidator` and `PromptBuilder` read it.
 | `components/ai/provider/` | LlmProvider interface, GeminiProvider, OpenAiCompatibleProvider (Groq), ScriptedProvider (tests), ProviderFactory, HttpJson (curl), ProviderError |
 | `components/TestHttpClient.php` | Cookie+CSRF curl client used by the verify commands |
 | `controllers/SiteController.php` | Login, logout, `switch-user` (POST+CSRF, gated by param) |
-| `controllers/ChatController.php` | `index` (chat UI, the default route), `ask` (POST JSON), `audit` (hr/ceo see all, others their own) |
+| `controllers/ChatController.php` | `index` (the "Demo Chatbot Testing Interface" dashboard, the default route), `ask` (POST JSON), `audit` (hr/ceo see all, others their own) |
 | `controllers/SecurityTestController.php` | Web test bench: hand-written SQL through QueryGateway, shows the role's prompt |
 | `commands/VerifyController.php` | `verify/phase1..6`, `verify/all`, `verify/demo` (live AI) |
 | `commands/SecurityController.php` | `security/prompt <email>`, `security/check <email> "<sql>"`, `security/raw "<sql>"` (bypasses the validator to show a MySQL 1142) |
 | `commands/SetupController.php` | `setup/database <rootpw>` |
 | `models/Employee.php` | AR + IdentityInterface. `models/Department.php`, `models/ChatAuditLog.php`, `models/LoginForm.php` (email login) |
-| `views/chat/index.php` | Chat UI (vanilla JS, SQL toggle, role badge, tables, refusal card) |
+| `views/chat/index.php` | Dashboard page behind the chat (no chat code in it) |
+| `views/layouts/_chat_widget.php` | **Floating chat widget** markup (bottom-right button + Messenger-style popup: SQL toggle, expand, clear, close, suggestion chips). Rendered by `layouts/main.php` for signed-in users on EVERY page. The per-role suggestions live here. |
+| `web/js/chat-widget.js` | Widget behaviour: open/close, Esc, unread dot, expand, clear, safe markdown/table/SQL rendering, history in sessionStorage key `erp.chat.v1.<userId>` (other users' keys deleted on load; all wiped on the signed-out layout; max 50 messages) |
+| `web/css/chat-widget.css` | Widget styles (380x560, expanded 640x720, height capped at `100vh-230px` so it never covers the navbar, lifted above the Yii debug toolbar, full-screen under 576px) |
+| `assets/ChatWidgetAsset.php` | Asset bundle for the widget (depends on AppAsset for yii.js/CSRF) |
 
 ## 7. Seed data facts (used by the tests; update the tests if you change the seed)
 
@@ -160,14 +171,21 @@ refusal wording). Both `SqlValidator` and `PromptBuilder` read it.
 
 ## 8. Testing
 
-- `php yii verify/all` runs 143 checks across phases 1–6 and needs the server running on
-  :8080. **No AI key needed**: phase 5 uses `ScriptedProvider`, including a malicious model.
+- `php yii verify/all` runs 149 checks across phases 1–6 and needs a running server. Use a temporary
+  one: `php yii serve localhost:8081` plus `php yii verify/all --baseUrl=http://localhost:8081`, then
+  stop it. **No AI calls**: phase 5 uses `ScriptedProvider` (including a malicious model), and its one HTTP
+  `chat/ask` check sends an over-long question that is rejected before the AI. For a hard guarantee, move
+  `config/ai-local.php` aside while testing and put it back afterwards.
 - `php yii verify/demo` runs the 5 demo questions live. It uses about 3 API calls per data
-  question.
+  question. **Only when the owner explicitly asks.**
 - Browser UI checks: headless Edge
   (`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe --headless=new --screenshot`)
-  on a temporary same-origin harness page in `web/`. Launch it via PowerShell `Start-Process`,
-  because Git Bash gets no output. Delete the harness afterwards.
+  on a temporary same-origin harness page in `web/` (for example `web/_uitest.html`). It logs in by POSTing to
+  `site/switch-user`, loads app pages in an iframe, and **stubs `iframe.contentWindow.fetch`** with canned
+  `chat/ask` JSON, so there are no AI calls. Launch it via PowerShell `Start-Process` (Git Bash gets no output), and
+  pin the result text with `position:fixed`, because autofocus scrolls the page. Headless virtual time
+  freezes CSS animations and transitions, so measure `offsetWidth` or the computed style, not
+  `getBoundingClientRect`. Delete the harness afterwards.
 
 ## 9. Known issues / gotchas
 
@@ -181,6 +199,9 @@ refusal wording). Both `SqlValidator` and `PromptBuilder` read it.
 - The Yii CSRF token rotates on login, and TestHttpClient refreshes it after redirects.
 - Native Windows PHP can't see Git Bash's `/tmp`, so use the repo's `runtime/` or the scratchpad.
 - The stock yii2-app-basic `LoginForm.php` shipped with a syntax error; it has been replaced.
+- **Stable ids (fixed 2026-09-28):** `migrate/redo 2` used to re-seed employees as ids 11-20 (auto-increment
+  kept counting). The seed `safeDown` now resets AUTO_INCREMENT, so ids are always ceo=1, hr=2, enghead=3,
+  engmgr=4, dev1=5 ... sales2=10. Code and tests look users up by email anyway; the ids matter for docs and demo visuals.
 
 ## 10. Documented limitations (README "Known limitations")
 
@@ -192,8 +213,13 @@ The demo role switcher must be off outside demos.
 
 ## 11. Status / next steps
 
-- Phases 1–6 are built and pass `verify/all` (143/143).
-- Live Gemini (`gemini-3.8-flash`) was verified on demo questions #1–#3. #4 generated the correct
+- Phases 1–6 are built and pass `verify/all` (149/149).
+- **Floating chat widget: DONE (2026-09-28).** The home page is the "Demo Chatbot Testing Interface"
+  dashboard; the bottom-right button toggles a Messenger-style popup on every signed-in page; history is
+  kept per user in sessionStorage. Verified by `verify/phase6` and a headless-Edge run with stubbed fetch
+  (open/close, history kept on toggle and across pages, Esc, unread dot, expand, HR sees a fresh chat,
+  sign-out wipes storage). There were no backend changes.
+- Live Gemini (`gemini-3.8-flash`, since switched to 3.6 by the owner) was verified on demo questions #1–#3. #4 generated the correct
   `:dept` SQL, but it and #5 hit the free-tier 429 quota, so re-run `verify/demo` when the quota resets.
 - Suggested: add a Groq key as a demo-day fallback.
 
@@ -201,6 +227,12 @@ The demo role switcher must be off outside demos.
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
 
+- 2026-09-28 (original Windows device) — **Floating chat widget** replaces the full-page chat: new
+  `_chat_widget.php`, `chat-widget.js/.css`, `ChatWidgetAsset`; the home page is now a dashboard; the nav link "Chat" became
+  "Dashboard"; old full-page chat CSS was removed from site.css. The seed `safeDown` resets AUTO_INCREMENT (stable ids
+  1-10). `verify/phase5` no longer makes a live AI call; `verify/phase6` has widget checks (149 total).
+- 2026-09-28 (original Windows device) — Owner switched model to `gemini-3.6-flash`. Added the rules:
+  update CLAUDE.md at every step, never burn the AI quota, keep :8080 free.
 - 2026-09-27 (original Windows device) — Initial build, phases 1–6. Added `setup/database`.
   Switched Gemini model to `gemini-3.8-flash`. Fixed the Gemini empty-args replay bug. Added
   429/503 retry. Committed DB secrets on purpose (owner decision); the AI key is kept out of git in

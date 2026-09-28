@@ -273,6 +273,12 @@ class m260927_000004_seed_demo_data extends Migration
             }
             $this->delete("{{%$table}}");
         }
+        // Reset the counters so a re-seed (`migrate/redo 2`) gives the same ids again
+        // (ceo = 1 ... dev1 = 5 ...), which the docs and demo screenshots rely on.
+        foreach (['company_info', 'attendance', 'leave_balances', 'leave_requests', 'leave_types',
+                     'salaries', 'employees', 'departments'] as $table) {
+            $this->execute("ALTER TABLE {{%$table}} AUTO_INCREMENT = 1");
+        }
     }
 
     private function nextWorkingDay(DateTimeImmutable $d): DateTimeImmutable

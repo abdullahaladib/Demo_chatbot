@@ -13,7 +13,7 @@ use yii\helpers\Html;
 $me = Yii::$app->user->identity;
 
 $items = [
-    ['label' => 'Chat', 'url' => ['/chat/index'], 'visible' => $me !== null],
+    ['label' => 'Dashboard', 'url' => ['/chat/index'], 'visible' => $me !== null],
     ['label' => 'Security test bench', 'url' => ['/security-test/index'], 'visible' => $me !== null],
     ['label' => 'Audit log', 'url' => ['/chat/audit'], 'visible' => $me !== null],
 ];

@@ -370,6 +370,14 @@ seed ran. Right before the demo, run `php yii migrate/redo 2` (views + seed) so 
 All five must work end to end. `php yii verify/demo` runs them live against the
 configured provider.
 
+**The chat is a floating widget.** After signing in you land on the "Demo Chatbot Testing
+Interface" dashboard. Click the round **chat button in the bottom-right corner** to open a
+Messenger-style chat window, and click it again (or press Esc) to close it. The window is on
+every page, keeps the conversation while it is closed and when you move between pages, and
+starts fresh for each user: switching user or signing out clears it. The header has **SQL**
+(show the generated SQL), **expand** (a wider window for the projector), **clear** and
+**close**.
+
 | # | Sign in as | Ask | Expected |
 |---|---|---|---|
 | 1 | `dev1@demo.local` (Employee) | "what's our leave policy?" | **Info path.** Answered from the knowledge base. No SQL. |
@@ -382,8 +390,8 @@ configured provider.
 
 Suggested talking points for #3:
 
-1. Turn on **"Show generated SQL"**. The refusal card says *"The model found no permitted
-   view for this and generated no SQL"*.
+1. Tick **SQL** in the chat window's header (and click **expand** so it is readable). The
+   refusal card says *"The model found no permitted view for this and generated no SQL"*.
 2. Open **Security test bench** as dev1 and expand "System prompt the AI receives for this
    role". There is no salary column in it anywhere: the model cannot write a query for
    something it was never told exists.
@@ -433,6 +441,7 @@ views, `OR 1=1`, missing `:me` and `DELETE`. All are refused or neutralised by t
 | [components/ai/PromptBuilder.php](components/ai/PromptBuilder.php) | Role-specific system prompt |
 | [components/ai/ChatService.php](components/ai/ChatService.php) | One chat turn: tools, loop, refusal handling, audit |
 | [components/ai/provider/](components/ai/provider/) | Gemini and Groq clients (curl), scripted test provider |
-| [controllers/ChatController.php](controllers/ChatController.php) | Chat UI, `ask` endpoint, audit page |
+| [controllers/ChatController.php](controllers/ChatController.php) | Dashboard, `ask` endpoint, audit page |
+| [views/layouts/_chat_widget.php](views/layouts/_chat_widget.php), [web/js/chat-widget.js](web/js/chat-widget.js), [web/css/chat-widget.css](web/css/chat-widget.css) | The floating chat widget, on every signed-in page |
 | [controllers/SecurityTestController.php](controllers/SecurityTestController.php) | Hand-written-SQL test bench (no AI) |
 | [commands/VerifyController.php](commands/VerifyController.php) | `php yii verify/*` acceptance checks |
