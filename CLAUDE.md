@@ -8,8 +8,11 @@ repo. The owner works from several devices and syncs via git.
 > decisions, known issues, work in progress), update this file right then. Add a line to the
 > [Change log](#change-log) with the date, the device if known, and what changed, and keep
 > [Status / next steps](#11-status--next-steps) showing what is in progress. Keep the sections
-> accurate: fix them, don't just append contradictions. Commit it with the related change and
-> push, so the other devices get it on their next `git pull`.
+> accurate: fix them, don't just append contradictions. Commit it locally with the related change.
+>
+> **NEVER `git push` without asking the owner first** (owner instruction, 2026-09-28). Local
+> commits are fine. When a task is done, list the unpushed commits and ask whether to push.
+> Only a push the owner has approved gets the changes to the other devices.
 >
 > **Don't burn the AI quota:** the owner's free-tier rate limit is tiny. Never run
 > `verify/demo` or other live AI calls unless the owner explicitly asks. Test with the
@@ -227,6 +230,7 @@ The demo role switcher must be off outside demos.
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
 
+- 2026-09-28 (original Windows device) — New owner rule: never `git push` without asking; local commits only.
 - 2026-09-28 (original Windows device) — **Floating chat widget** replaces the full-page chat: new
   `_chat_widget.php`, `chat-widget.js/.css`, `ChatWidgetAsset`; the home page is now a dashboard; the nav link "Chat" became
   "Dashboard"; old full-page chat CSS was removed from site.css. The seed `safeDown` resets AUTO_INCREMENT (stable ids
