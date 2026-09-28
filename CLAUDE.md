@@ -274,10 +274,29 @@ The demo role switcher must be off outside demos.
   widget on every signed-in page. Wait for the owner to say what goes where.
 - Suggested: add a Groq key as a demo-day fallback.
 
+## 12. Checkpoints (known-good states to return to)
+
+| Name | Git tag | DB snapshot (local only, gitignored) | State |
+|---|---|---|---|
+| Training DB replaced | `checkpoint-2026-09-28-training-db` | `checkpoints/erp_training-2026-09-28.sql.gz` (original Windows device only) | App on erp_training; 4 training migrations; 151/151 verify; floating chat widget; Gemini `gemini-3.6-flash`; no live AI run on the new DB yet |
+
+**Return to a checkpoint:**
+```bash
+git fetch --tags
+git checkout -b back-to-checkpoint checkpoint-2026-09-28-training-db   # code
+# DB, on the device that has the snapshot (fast):
+gunzip -c checkpoints/erp_training-2026-09-28.sql.gz | mysql -u root -p   # recreates erp_training
+# DB anywhere else (rebuild from the dump, ~7 min):
+php yii setup/database <mysql-root-password>
+```
+Tell the owner before resetting `main` itself; prefer a branch from the tag.
+
 ## Change log
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
 
+- 2026-09-28 (original Windows device) — **CHECKPOINT** `checkpoint-2026-09-28-training-db` (git tag, pushed) + local DB
+  snapshot `checkpoints/erp_training-2026-09-28.sql.gz`. See section 12.
 - 2026-09-28 (original Windows device) — **Demo DB replaced by the training ERP** (`erp_training`, imported from
   trainingclouderp_training_db.sql). Added: TrainingDumpConverter + `setup/import-training`; `setup/database` does
   the full rebuild; migrations/training (ai_* tables; demo people: ceo=1001, dept_head=1005, NEW hr.demo 45728;

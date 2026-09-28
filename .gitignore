@@ -42,3 +42,5 @@ tests/_support/_generated
 # Source database dumps: personal data + password hashes. The repo is PUBLIC - never commit these.
 *.sql.gz
 /trainingclouderp_training_db.sql
+# Local database snapshots (checkpoints) - contain ERP personal data. Never commit.
+/checkpoints/
