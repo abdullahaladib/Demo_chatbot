@@ -15,7 +15,7 @@ mkdir -p "$HERE/$PLUGIN" "$HERE/app/controllers/routing" "$HERE/app/views/ai_cha
     ! -path './data/installed.*' ! -path './data/install.lock' \
     -print0 | while IFS= read -r -d '' f; do mkdir -p "$HERE/$PLUGIN/$(dirname "$f")"; cp "$f" "$HERE/$PLUGIN/$f"; done )
 cp "$ERP/app/controllers/routing/inc.ai_chatbot.php" "$HERE/app/controllers/routing/"
-cp "$ERP/app/views/ai_chatbot/api/ask.php" "$HERE/app/views/ai_chatbot/api/"
+cp "$ERP/app/views/ai_chatbot/api/"*.php "$HERE/app/views/ai_chatbot/api/"
 cp "$ERP/public/assets/ai_chatbot/"* "$HERE/public/assets/ai_chatbot/"
 
 # refuse to leave anything that looks like a secret in the mirror

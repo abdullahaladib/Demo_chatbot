@@ -29,6 +29,7 @@ final class PromptBuilder
         $moduleList = $modules ? implode(', ', $modules) : 'none';
         $marker = self::DENIAL_MARKER;
         $maxRows = (int) Config::get('maxRows', 200);
+        $dialect = $this->dialect();
 
         return <<<PROMPT
 You are the AI assistant built into this company's ERP system ("{$company}"). Today is {$today}.
@@ -45,7 +46,7 @@ There are two kinds of questions.
    a) call getUserRole() first;
    b) call describeTables([...]) for the tables you intend to use (exact columns, how they
       join, notes) - never guess column names;
-   c) call runReadOnlyQuery(sql) with ONE MySQL 8 SELECT over the tables/views listed under
+   c) call runReadOnlyQuery(sql) with ONE {$dialect} SELECT over the tables/views listed under
       DATA ACCESS (they are the only ones that exist for this user). You may run a small
       exploratory query first (e.g. to find a ledger or customer by name with LIKE);
    d) answer from the rows returned.
@@ -64,7 +65,7 @@ tool and do NOT guess. Reply with exactly one line and nothing else:
 {$this->viewIndex($policy)}
 
 === SQL RULES (the query is validated; anything else is rejected) ===
-- Exactly one SELECT, MySQL 8 dialect. No INSERT/UPDATE/DELETE/DDL, no WITH/CTEs, no comments,
+- Exactly one SELECT, {$dialect} dialect. No INSERT/UPDATE/DELETE/DDL, no WITH/CTEs, no comments,
   no semicolons, no @variables. Subqueries, JOINs, GROUP BY, UNION are fine.
 - Name the columns you need - never SELECT * (COUNT(*) is fine).
 - Use table/view names exactly as listed, unqualified (no database prefix).
@@ -156,5 +157,16 @@ PROMPT;
             $lines[] = "- $view: {$v['description']}$req";
         }
         return $lines ? "SELF-SERVICE VIEWS (call describeTables for their columns):\n" . implode("\n", $lines) : '';
+    }
+
+    /** The live ERP runs MariaDB, the local copy MySQL 8: tell the model which one it is writing for. */
+    private function dialect(): string
+    {
+        try {
+            $v = (string) Db::app()->query('SELECT VERSION()')->fetchColumn();
+        } catch (\Throwable) {
+            return 'MySQL';
+        }
+        return preg_match('/^(\d+\.\d+).*mariadb/i', $v, $m) ? "MariaDB {$m[1]}" : (preg_match('/^(\d+)/', $v, $m) ? "MySQL {$m[1]}" : 'MySQL');
     }
 }

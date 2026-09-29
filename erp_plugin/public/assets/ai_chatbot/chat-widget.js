@@ -211,6 +211,102 @@
         if (!input.disabled) ask(b.textContent.trim());
     }));
 
+    // ------------------------------------------------------------------ settings (gear icon, admins only)
+    // The server decides who may use this (settings.php checks the admin list); the full API key is
+    // only ever sent, never received.
+    if (cfg.settingsUrl && $('aic-gear')) {
+        const view = $('aic-settings'), footer = root.querySelector('.aic-footer');
+        const keyInput = $('aic-set-key'), modelSel = $('aic-set-model'), status = $('aic-set-status');
+        const saveBtn = $('aic-set-save'), checkBtn = $('aic-set-check');
+        let current = null;
+
+        const call = async body => {
+            try {
+                const res = await fetch(cfg.settingsUrl, {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: {'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-Token': cfg.csrf},
+                    body: JSON.stringify(body),
+                });
+                try { return await res.json(); } catch (e) { return {ok: false, error: 'Server error (HTTP ' + res.status + ').'}; }
+            } catch (e) {
+                return {ok: false, error: 'Could not reach the ERP server.'};
+            }
+        };
+        const say = (text, kind) => { status.textContent = text || ''; status.className = 'aic-set-status' + (kind ? ' aic-set-' + kind : ''); };
+        const busy = on => { saveBtn.disabled = checkBtn.disabled = on; };
+
+        function showState(s) {
+            current = s;
+            $('aic-set-provider').value = s.providerLabel;
+            $('aic-set-keyinfo').textContent = s.keyMask
+                ? 'Current key: ' + s.keyMask + (s.keySource === 'panel' ? '' : ' (from the server file)')
+                : 'No key yet.';
+            $('aic-set-meta').textContent = s.updatedBy ? 'Last changed by ' + s.updatedBy + ' on ' + s.updatedAt + '.' : '';
+        }
+        function fillModels(models, fromGoogle) {
+            const ids = models.map(m => typeof m === 'string' ? {id: m, label: m} : m);
+            if (current && current.model && !ids.some(m => m.id === current.model)) {
+                ids.unshift({id: current.model, label: current.model + ' (current)'});
+            }
+            modelSel.innerHTML = ids.map(m => '<option value="' + esc(m.id) + '">' + esc(m.label === m.id ? m.id : m.label + ' - ' + m.id) + '</option>').join('');
+            if (current && current.model) modelSel.value = current.model;
+            $('aic-set-modelinfo').textContent = fromGoogle
+                ? ids.length + ' chat models available for this key (live from Google).'
+                : 'Standard list (Google\'s live list could not be loaded).';
+        }
+        async function loadModels(apiKey) {
+            const r = await call({action: 'models', apiKey: apiKey || ''});
+            if (r.ok) {
+                fillModels(r.models, true);
+                return r;
+            }
+            fillModels((current && current.fallbackModels) || [], false);
+            return r;
+        }
+
+        async function openSettings() {
+            view.hidden = false; list.hidden = true; footer.hidden = true;
+            keyInput.value = '';
+            say('Loading...');
+            busy(true);
+            const r = await call({action: 'get'});
+            if (!r.ok) { say(r.error, 'err'); busy(false); return; }
+            showState(r.state);
+            const m = await loadModels('');
+            say(m.ok || !r.state.keyMask ? '' : m.error, m.ok ? '' : 'warn');
+            busy(false);
+        }
+        function closeSettings() {
+            view.hidden = true; list.hidden = false; footer.hidden = false;
+            keyInput.value = '';
+            say('');
+            input.focus();
+        }
+
+        $('aic-gear').addEventListener('click', () => (view.hidden ? openSettings() : closeSettings()));
+        $('aic-set-cancel').addEventListener('click', closeSettings);
+        checkBtn.addEventListener('click', async () => {
+            const key = keyInput.value.trim();
+            if (!key) { say('Paste a key first (or leave it empty to keep the current one).', 'warn'); return; }
+            busy(true); say('Checking the key with Google...');
+            const r = await loadModels(key);
+            say(r.ok ? 'Key works. Pick a model and press Save.' : r.error, r.ok ? 'ok' : 'err');
+            busy(false);
+        });
+        saveBtn.addEventListener('click', async () => {
+            busy(true); say('Saving...');
+            const r = await call({action: 'save', apiKey: keyInput.value.trim(), model: modelSel.value});
+            if (r.ok) {
+                showState(r.state);
+                keyInput.value = '';
+                say('Saved. The next question uses ' + r.state.model + '.', 'ok');
+            } else {
+                say(r.error, 'err');
+            }
+            busy(false);
+        });
+    }
+
     // ------------------------------------------------------------------ boot
     applySql();
     setExpanded(state.expanded);

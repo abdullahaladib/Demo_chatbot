@@ -30,7 +30,7 @@ final class ProviderError extends \RuntimeException
     public function userMessage(): string
     {
         return match ($this->category) {
-            self::NOT_CONFIGURED => 'The AI assistant is not configured yet: add an API key in the plug-in config.local.php.',
+            self::NOT_CONFIGURED => 'The AI assistant has no API key yet. A chatbot admin can add one with the gear icon in this chat.',
             self::RATE_LIMITED => 'The AI service is rate-limiting us right now (free tier). Please try again in a minute.',
             self::AUTH => 'The AI service rejected our API key. Check the key in the plug-in config.local.php.',
             self::BUSY => 'The AI service (Gemini) is overloaded right now - high demand on its side. Please try again in a minute.',

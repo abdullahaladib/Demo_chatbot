@@ -277,10 +277,11 @@ The demo role switcher must be off outside demos.
 - Scope is HR only (employees, leave, attendance, salary, directory). Other ERP modules (accounts, sales,
   CRM, hotel...) are possible later phases: each needs views + access-map entries + tests.
 - **DONE (2026-09-28): the chatbot is plugged into the company ERP clone** at `D:\Workspace\app`. See section 13.
-  It passes 77/77 offline tests (`tests/run_tests.php`, scripted model). The widget was checked in headless Edge on
+  It passes 99/99 offline tests (`tests/run_tests.php`, scripted model). The widget was checked in headless Edge on
   the dashboard and the Accounts module with a stubbed fetch. The owner's first live questions reached Gemini, which
-  answered 503 (overloaded). That led to the 90 s turn budget and the clearer "busy" message (commit dc3d940). A
-  successful live answer in the ERP has not been confirmed yet.
+  answered 503 (overloaded). That led to the 90 s turn budget and the clearer "busy" message (commit dc3d940).
+  **2026-09-29: the owner confirmed successful live answers** (bimol: employees per department, vouchers this month;
+  55-75 s each). An admin can now change the key/model from the chat itself (gear icon; see section 13).
 - **WHERE WE LEFT OFF (end of 2026-09-28)**, to pick up next session:
   - The ERP server on :8090 ran from a Claude session and stops with it. Restart it with the command in section 13.
   - Deployment guide PDF for the owner: `D:\ERP_AI_Chatbot_Plugin_Guide.pdf`. The owner asked to leave Demo_chatbot out
@@ -377,6 +378,10 @@ generated data, and fails if it spots a key. Human docs: `erp_plugin/app/control
 - `AI_CHATBOT_RUNTIME_DIR` (bootstrap) is where the log, markers and grants record go: `data/` on a server,
   `erp_local_dev/ai_chatbot_runtime/` here.
 - `install/local_demo_setup.php` refuses to run unless `erp_local_dev` exists.
+- **Settings panel** (gear icon in the chat, users in `settingsAdmins` only, checked server-side):
+  - `app/views/ai_chatbot/api/settings.php` + `src/Settings.php` handle the provider, the API key (masked) and the model.
+  - Stored in `AI_CHATBOT_RUNTIME_DIR/settings.php` and merged last by `Config`.
+  - The live Gemini model list is cached 1 h per key (`models.<hash>.php`); history goes to `settings_history.log.php`.
 - Identity comes from the ERP session. `mhafuz=Active`, `user.id`, `user.group` and the tenant `db_*` keys come
   from the login. Tier is decided the same way as `RoleResolver` (ai_role_assignment > line manager > employee).
   A login without an in-service employee gets tier `none`.
@@ -425,6 +430,24 @@ generated data, and fails if it spots a key. Human docs: `erp_plugin/app/control
 ## Change log
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
+
+- 2026-09-29 (original Windows device) — **Settings panel in the chat (gear icon)**, approved by the owner:
+  - Choices: admins = `bimol` + the owner's own username (**not known yet**, ask them; the demo logins they used are
+    bimol and tanvir); one key only; a live model list.
+  - New: `src/Settings.php`, `app/views/ai_chatbot/api/settings.php` (POST get/models/save), gear + settings view in the
+    widget (`?v=3`), config `settingsAdmins` and `providers.gemini.fallbackModels`.
+  - The saved key/model live in the runtime folder `settings.php` (guarded, atomic write). `Config` merges them LAST, so
+    a panel change applies to the next question. `ProviderFactory` now prefers the configured key over the
+    `GEMINI_API_KEY` env var.
+  - The live model list comes from Gemini `GET /models` (a metadata call, not a question), filtered to chat models,
+    newest first, cached 1 h per key. A new key must pass that list before it is saved. The full key is never returned
+    and only ever masked in `settings_history.log.php`.
+  - `PromptBuilder` now tells the model the real SQL dialect (`SELECT VERSION()`: "MariaDB 10.11" on live, "MySQL 8" here).
+  - Tests 99/99: a fake Google on :8096 (no real AI calls), plus HTTP admin/non-admin/CSRF checks. The panel was checked
+    in headless Edge on the dashboard and the Accounts module.
+  - The owner confirmed that live answers work ("gemini has done a good job"). Their later errors were Gemini 503/429
+    (quota), not bugs. MariaDB: reviewed, owner accepts a first-deploy test. Privacy: all demo data (owner's call).
+  - Upload package rebuilt (46 files).
 
 - 2026-09-29 (original Windows device) — **`D:\Workspace\app` made upload-ready** (owner: "just zip the folder and upload
   it to cPanel and it will work"):

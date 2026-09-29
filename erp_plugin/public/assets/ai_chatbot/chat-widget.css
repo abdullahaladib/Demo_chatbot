@@ -174,3 +174,29 @@
 #aic-widget input.aic-input { border-radius: 999px !important; height: 40px !important; outline: none !important; }
 #aic-widget input.aic-input:focus { outline: none !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--aic-a) 18%, transparent); }
 #aic-widget code, #aic-widget pre { font-variant-ligatures: none; }
+
+/* ---- settings view (gear icon, chatbot admins only) ---- */
+#aic-widget .aic-settings { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 11px; background: var(--aic-soft); }
+#aic-widget .aic-settings-head { display: flex; flex-direction: column; gap: 2px; }
+#aic-widget .aic-settings-head b { font-size: 14px !important; color: var(--aic-text); }
+#aic-widget .aic-field { display: flex; flex-direction: column; gap: 4px; margin: 0; color: var(--aic-text) !important; }
+#aic-widget .aic-field > span { font-size: 11px !important; font-weight: 700 !important; letter-spacing: .04em; text-transform: uppercase; color: var(--aic-muted); }
+#aic-widget .aic-field input, #aic-widget .aic-field select {
+    width: 100% !important; height: 38px; padding: 0 12px; font-size: 13px !important; font-weight: 400 !important;
+    color: var(--aic-text) !important; background: var(--aic-panel) !important;
+    border: 1px solid var(--aic-line) !important; border-radius: 10px; outline: none !important;
+}
+#aic-widget .aic-field input:focus, #aic-widget .aic-field select:focus { border-color: var(--aic-a) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--aic-a) 18%, transparent); }
+#aic-widget .aic-field input[readonly] { color: var(--aic-muted) !important; }
+#aic-widget .aic-field small, #aic-widget #aic-set-meta { font-size: 11px !important; }
+#aic-widget .aic-btn {
+    align-self: flex-start; height: 36px; padding: 0 16px; border: 0; border-radius: 10px; cursor: pointer;
+    font-size: 13px !important; font-weight: 700 !important; color: #fff; background: linear-gradient(135deg, var(--aic-a), var(--aic-b));
+}
+#aic-widget .aic-btn-ghost { color: var(--aic-a); background: var(--aic-panel); border: 1px solid var(--aic-line); }
+#aic-widget .aic-btn:disabled { opacity: .55; cursor: default; }
+#aic-widget .aic-settings-actions { display: flex; justify-content: space-between; gap: 8px; }
+#aic-widget .aic-set-status { min-height: 18px; font-size: 12.5px !important; color: var(--aic-muted); }
+#aic-widget .aic-set-ok { color: #059669; }
+#aic-widget .aic-set-warn { color: #b45309; }
+#aic-widget .aic-set-err { color: #b42318; }

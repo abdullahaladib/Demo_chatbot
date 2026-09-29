@@ -6,7 +6,8 @@ namespace AiChatbot;
 
 /**
  * Plug-in settings: config.php, then config.local.php (this server's secrets), then - on the
- * developer machine only - erp_local_dev/ai_chatbot.config.php, which lives outside the ERP folder.
+ * developer machine only - erp_local_dev/ai_chatbot.config.php, which lives outside the ERP folder;
+ * finally the key and model saved in the chat's settings panel (Settings).
  */
 final class Config
 {
@@ -24,6 +25,8 @@ final class Config
             if (@is_file($dev)) {
                 $values = array_replace_recursive($values, require $dev);
             }
+            // last: the key and model chosen in the chat's settings panel
+            $values = array_replace_recursive($values, Settings::overrides());
             self::$values = $values;
         }
         return self::$values;
@@ -32,6 +35,12 @@ final class Config
     public static function get(string $key, mixed $default = null): mixed
     {
         return self::all()[$key] ?? $default;
+    }
+
+    /** Re-read everything on next use (after the settings panel saved). */
+    public static function reset(): void
+    {
+        self::$values = null;
     }
 
     /** For tests: override settings in memory. */

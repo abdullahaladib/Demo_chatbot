@@ -53,13 +53,24 @@ final class HttpJson
         return $response;
     }
 
+    /**
+     * One GET, no retries (used to list the models an API key can use: a metadata call, not a question).
+     * @param string[] $headers
+     * @return array{status:int, json:?array, raw:string}
+     */
+    public function get(string $url, array $headers): array
+    {
+        return $this->postOnce($url, $headers, null);
+    }
+
     /** @return array{status:int, json:?array, raw:string} */
-    private function postOnce(string $url, array $headers, array $body): array
+    private function postOnce(string $url, array $headers, ?array $body): array
     {
         $ch = curl_init($url);
-        $opts = [
+        $opts = ($body === null ? [CURLOPT_HTTPGET => true] : [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]) + [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER => array_merge(['Content-Type: application/json'], $headers),
             CURLOPT_CONNECTTIMEOUT => 10,

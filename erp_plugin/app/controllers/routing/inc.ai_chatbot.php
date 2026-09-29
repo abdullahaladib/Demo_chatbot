@@ -40,8 +40,10 @@ if (($_SESSION['mhafuz'] ?? '') === 'Active' && !empty($_SESSION['user']['id']) 
                 }
             }
 
+            $aicCanManage = \AiChatbot\Settings::isAdmin($aicIdentity);
             $aicConfig = [
                 'askUrl' => SERVER_VIEW . 'ai_chatbot/api/ask.php',
+                'settingsUrl' => $aicCanManage ? SERVER_VIEW . 'ai_chatbot/api/settings.php' : null,
                 'csrf' => (string) ($_SESSION['csrf_token'] ?? ''),
                 'userKey' => ($_SESSION['proj_id'] ?? '') . '.' . (int) $_SESSION['user']['id'],
                 'firstName' => explode(' ', $aicIdentity->name)[0],
@@ -49,7 +51,7 @@ if (($_SESSION['mhafuz'] ?? '') === 'Active' && !empty($_SESSION['user']['id']) 
             ];
             $aicH = static fn($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
             ?>
-<link rel="stylesheet" href="<?= $aicH(SERVER_ROOT . 'public/assets/ai_chatbot/chat-widget.css') ?>?v=2">
+<link rel="stylesheet" href="<?= $aicH(SERVER_ROOT . 'public/assets/ai_chatbot/chat-widget.css') ?>?v=3">
 <div id="aic-widget" data-config="<?= $aicH(json_encode($aicConfig)) ?>">
     <section id="aic-panel" class="aic-panel" role="dialog" aria-label="ERP Assistant" hidden>
         <header class="aic-header">
@@ -59,6 +61,7 @@ if (($_SESSION['mhafuz'] ?? '') === 'Active' && !empty($_SESSION['user']['id']) 
                 <div class="aic-subtitle"><?= $aicH($aicIdentity->name) ?> <span class="aic-badge"><?= $aicH($aicIdentity->tierLabel()) ?></span></div>
             </div>
             <div class="aic-actions">
+                <?php if ($aicCanManage) { ?><button type="button" class="aic-icon-btn" id="aic-gear" title="AI key and model" aria-label="AI key and model settings"><i class="fa-solid fa-gear"></i></button><?php } ?>
                 <label class="aic-sql-toggle" title="Show the generated SQL"><input type="checkbox" id="aic-toggle-sql"> SQL</label>
                 <button type="button" class="aic-icon-btn aic-expand-btn" id="aic-expand" title="Expand" aria-label="Expand"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button>
                 <button type="button" class="aic-icon-btn" id="aic-clear" title="Clear chat" aria-label="Clear chat"><i class="fa-regular fa-trash-can"></i></button>
@@ -66,6 +69,29 @@ if (($_SESSION['mhafuz'] ?? '') === 'Active' && !empty($_SESSION['user']['id']) 
             </div>
         </header>
         <div class="aic-messages" id="aic-messages" aria-live="polite"></div>
+        <?php if ($aicCanManage) { ?>
+        <div class="aic-settings" id="aic-settings" hidden>
+            <div class="aic-settings-head">
+                <b>AI key and model</b>
+                <span class="aic-muted">Changes apply to the next question, for everyone.</span>
+            </div>
+            <label class="aic-field"><span>Provider</span><input type="text" id="aic-set-provider" readonly></label>
+            <label class="aic-field"><span>API key</span>
+                <input type="password" id="aic-set-key" autocomplete="off" spellcheck="false" placeholder="Paste a new key (leave empty to keep the current one)">
+                <small class="aic-muted" id="aic-set-keyinfo"></small>
+            </label>
+            <button type="button" class="aic-btn aic-btn-ghost" id="aic-set-check">Check key</button>
+            <label class="aic-field"><span>Model</span><select id="aic-set-model"></select>
+                <small class="aic-muted" id="aic-set-modelinfo"></small>
+            </label>
+            <div class="aic-set-status" id="aic-set-status" role="status"></div>
+            <div class="aic-settings-actions">
+                <button type="button" class="aic-btn aic-btn-ghost" id="aic-set-cancel">Back to chat</button>
+                <button type="button" class="aic-btn" id="aic-set-save">Save</button>
+            </div>
+            <small class="aic-muted" id="aic-set-meta"></small>
+        </div>
+        <?php } ?>
         <footer class="aic-footer">
             <?php if ($aicChips) { ?>
             <div class="aic-chips">
@@ -84,7 +110,7 @@ if (($_SESSION['mhafuz'] ?? '') === 'Active' && !empty($_SESSION['user']['id']) 
         <span class="aic-unread" id="aic-unread" hidden></span>
     </button>
 </div>
-<script src="<?= $aicH(SERVER_ROOT . 'public/assets/ai_chatbot/chat-widget.js') ?>?v=2"></script>
+<script src="<?= $aicH(SERVER_ROOT . 'public/assets/ai_chatbot/chat-widget.js') ?>?v=3"></script>
             <?php
         }
     } catch (Throwable $aicError) {

@@ -19,9 +19,11 @@ final class ProviderFactory
         if ($p === null) {
             throw new ProviderError(ProviderError::NOT_CONFIGURED, "Unknown AI provider '$name'");
         }
-        $key = getenv(strtoupper($name) . '_API_KEY') ?: ($p['apiKey'] ?? '');
+        // The key saved in the chat's settings panel (or config.local.php) wins; an environment
+        // variable is only a fallback, so a panel change always takes effect.
+        $key = (string) ($p['apiKey'] ?? '') !== '' ? (string) $p['apiKey'] : (string) getenv(strtoupper($name) . '_API_KEY');
         if ($key === '') {
-            throw new ProviderError(ProviderError::NOT_CONFIGURED, "No API key for '$name' (config.local.php)");
+            throw new ProviderError(ProviderError::NOT_CONFIGURED, "No API key for '$name' (add one in the chat's settings)");
         }
 
         $http = new HttpJson((int) Config::get('timeoutSeconds', 45), Config::get('caBundle'));

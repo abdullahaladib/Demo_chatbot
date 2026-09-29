@@ -267,12 +267,73 @@ $real = (require AI_CHATBOT_DEV_DIR . '/ai_chatbot.config.php')['aiAccounts'];
 Db::useAdminAccount();
 
 // ------------------------------------------------------------------------------------------
+section('Settings panel: key + model (fake Google on 127.0.0.1:8096, no real AI calls)');
+use AiChatbot\Settings;
+use AiChatbot\Config;
+use AiChatbot\provider\ProviderFactory;
+
+$fakeDir = sys_get_temp_dir() . '/aic_fake_google';
+@mkdir($fakeDir);
+file_put_contents($fakeDir . '/router.php', <<<'PHP'
+<?php // fake Google "list models": the key GOOD... works, anything else is rejected
+header('Content-Type: application/json');
+$key = $_SERVER['HTTP_X_GOOG_API_KEY'] ?? '';
+if (!str_starts_with($key, 'GOOD')) { http_response_code(400); echo '{"error":{"code":400,"message":"API key not valid."}}'; return; }
+$m = fn($id, $methods = ['generateContent', 'countTokens']) => ['name' => "models/$id", 'displayName' => ucwords(str_replace('-', ' ', $id)), 'supportedGenerationMethods' => $methods];
+echo json_encode(['models' => [$m('gemini-3.6-flash'), $m('gemini-3.8-flash'), $m('gemini-3.7-flash'), $m('text-embedding-004', ['embedContent']),
+    $m('gemini-3.7-flash-preview-tts'), $m('gemini-3.7-flash-image'), $m('gemini-3.8-embedding', ['embedContent'])]]);
+PHP);
+$fake = proc_open([PHP_BINARY, '-S', '127.0.0.1:8096', $fakeDir . '/router.php'], [1 => ['file', $fakeDir . '/out.log', 'a'], 2 => ['file', $fakeDir . '/out.log', 'a']], $pipes);
+usleep(700000);
+$useFake = fn() => Config::override(['providers' => ['gemini' => ['baseUrl' => 'http://127.0.0.1:8096/v1beta']]]);
+$cleanSettings = function (): void {
+    foreach (glob(AI_CHATBOT_RUNTIME_DIR . '/{settings.php,settings_history.log.php,models.*.php}', GLOB_BRACE) as $f) {
+        @unlink($f);
+    }
+    Config::reset();
+};
+$cleanSettings();
+$useFake();
+
+$bimol = Identity::load(userId('bimol'));
+check('bimol is a settings admin, tanvir is not', Settings::isAdmin($bimol) && !Settings::isAdmin($tanvir));
+$goodKey = 'GOODkey_' . str_repeat('x', 30) . 'Zq42';
+$l = Settings::listModels($goodKey);
+check('live list: chat models only, newest first', $l['ok'] && array_column($l['models'], 'id') === ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'], json_encode($l));
+$l = Settings::listModels('BADkey_' . str_repeat('y', 30));
+check('bad key -> "Google rejected this API key"', !$l['ok'] && str_contains((string) $l['error'], 'rejected'), (string) $l['error']);
+$r = Settings::save($bimol, 'BADkey_' . str_repeat('y', 30), 'gemini-3.8-flash');
+check('saving a bad key is refused and nothing is stored', !$r['ok'] && !is_file(Settings::file()), (string) $r['error']);
+$r = Settings::save($bimol, $goodKey, 'gemini-9.9-ultra');
+check('a model the key cannot use is refused', !$r['ok'] && str_contains((string) $r['error'], 'cannot use'), (string) $r['error']);
+$r = Settings::save($bimol, $goodKey, 'gemini 3.8; DROP');
+check('a malformed model id is refused', !$r['ok'], (string) $r['error']);
+$r = Settings::save($bimol, $goodKey, 'gemini-3.8-flash');
+check('good key + listed model -> saved', $r['ok'] && is_file(Settings::file()), (string) $r['error']);
+$useFake();
+$p = Config::get('providers')['gemini'];
+check('Config now uses the saved key and model', $p['apiKey'] === $goodKey && $p['model'] === 'gemini-3.8-flash', $p['model']);
+check('the chat engine is built with the saved model', ProviderFactory::create()->model() === 'gemini-3.8-flash');
+$state = Settings::state();
+check('panel state: masked key, source panel, who/when', $state['keyMask'] === '••••••••Zq42' && $state['keySource'] === 'panel' && $state['updatedBy'] === $bimol->username, json_encode($state, JSON_UNESCAPED_UNICODE));
+check('the full key never appears in the panel state', !str_contains(json_encode($state), $goodKey));
+$r = Settings::save($bimol, '', 'gemini-3.6-flash');
+$useFake();
+check('blank key keeps the key, changes the model', $r['ok'] && Config::get('providers')['gemini']['apiKey'] === $goodKey && Config::get('providers')['gemini']['model'] === 'gemini-3.6-flash');
+$history = (string) @file_get_contents(AI_CHATBOT_RUNTIME_DIR . '/settings_history.log.php');
+check('change history: 2 entries, key only masked', substr_count($history, '"by":"bimol"') === 2 && !str_contains($history, $goodKey), $history);
+check('settings files start with the 404 guard', str_starts_with((string) file_get_contents(Settings::file()), AI_CHATBOT_FILE_GUARD));
+proc_terminate($fake);
+proc_close($fake);
+$cleanSettings();
+
+// ------------------------------------------------------------------------------------------
 section('HTTP endpoint guards (ERP must be running)');
 $base = rtrim($argv[1] ?? 'http://training.localhost:8090', '/');
 $host = parse_url($base, PHP_URL_HOST);
 $port = parse_url($base, PHP_URL_PORT) ?: 80;
 $jar = tempnam(sys_get_temp_dir(), 'aic');
-$http = function (string $method, string $path, array $headers = [], ?string $body = null) use ($base, $host, $port, $jar): array {
+$http = function (string $method, string $path, array $headers = [], ?string $body = null) use ($base, $host, $port, &$jar): array {
     $c = curl_init($base . $path);
     curl_setopt_array($c, [
         CURLOPT_RETURNTRANSFER => true, CURLOPT_CUSTOMREQUEST => $method, CURLOPT_HTTPHEADER => $headers,
@@ -313,6 +374,38 @@ if ($code === 0) {
         json_encode(['question' => '', 'role' => 'ceo', 'user_id' => 1]));
     $j = json_decode($out, true) ?: [];
     check('role/user_id in the body are ignored (identity from session)', $code === 200 && ($j['role'] ?? '') === $tanvir->tier && ($j['path'] ?? '') === 'error', $out);
+
+    // settings endpoint: tanvir (not an admin), then bimol (admin)
+    $setPath = '/app/views/ai_chatbot/api/settings.php';
+    check('non-admin sees no gear icon', !str_contains($home, 'id="aic-gear"'));
+    [$code] = $http('POST', $setPath, ['Content-Type: application/json', 'X-CSRF-Token: ' . ($cfg['csrf'] ?? '')], '{"action":"get"}');
+    check('non-admin -> settings 403', $code === 403, (string) $code);
+
+    @unlink($jar);
+    $jar = tempnam(sys_get_temp_dir(), 'aic');
+    [, $html] = $http('GET', '/app/views/auth/masters/index.php');
+    preg_match('/name="csrf_token"[^>]*value="([^"]+)"/', str_replace("\n", ' ', $html), $m);
+    $http('POST', '/app/views/auth/masters/index.php', [], http_build_query(['cid' => 'training', 'uid' => 'bimol', 'pass' => 'Demo@1234', 'csrf_token' => $m[1] ?? '']));
+    [, $home] = $http('GET', '/app/views/auth/masters/home.php');
+    check('admin (bimol) sees the gear icon', str_contains($home, 'id="aic-gear"') && str_contains($home, 'id="aic-settings"'));
+    preg_match('/id="aic-widget" data-config="([^"]+)"/', $home, $m);
+    $cfg = json_decode(html_entity_decode($m[1] ?? '', ENT_QUOTES), true) ?: [];
+    $hdr = ['Content-Type: application/json', 'X-CSRF-Token: ' . ($cfg['csrf'] ?? '')];
+    [$code] = $http('GET', $setPath);
+    check('settings GET -> 405', $code === 405, (string) $code);
+    [$code] = $http('POST', $setPath, ['Content-Type: application/json'], '{"action":"get"}');
+    check('settings without CSRF -> 403', $code === 403, (string) $code);
+    [$code, $out] = $http('POST', $setPath, $hdr, '{"action":"get"}');
+    $realKey = (string) ((require AI_CHATBOT_DIR . '/config.local.php')['providers']['gemini']['apiKey'] ?? '');
+    $j = json_decode($out, true) ?: [];
+    check('admin reads settings: model + masked key, never the key', $code === 200 && ($j['state']['model'] ?? '') !== ''
+        && str_ends_with((string) ($j['state']['keyMask'] ?? ''), substr($realKey, -4)) && ($realKey === '' || !str_contains($out, $realKey)), $out);
+    [$code, $out] = $http('POST', $setPath, $hdr, '{"action":"save","apiKey":"","model":"gemini-3.6-flash"}');
+    $j = json_decode($out, true) ?: [];
+    check('admin saves a model over the web (key kept)', $code === 200 && ($j['state']['model'] ?? '') === 'gemini-3.6-flash' && ($j['state']['updatedBy'] ?? '') === 'bimol', $out);
+    Config::reset();
+    check('...and the next question would use it', Config::get('providers')['gemini']['model'] === 'gemini-3.6-flash');
+    $cleanSettings();
 }
 @unlink($jar);
 

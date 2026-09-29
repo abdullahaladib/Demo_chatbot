@@ -14,7 +14,9 @@ return [
     'providers' => [
         'gemini' => [
             'type' => 'gemini',
-            'model' => 'gemini-3.7-flash',
+            'model' => 'gemini-3.7-flash',       // default; the chat's settings panel can change it
+            // shown in the settings panel if Google's live model list cannot be loaded
+            'fallbackModels' => ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'],
             'baseUrl' => 'https://generativelanguage.googleapis.com/v1beta',
             'apiKey' => '',                 // config.local.php
         ],
@@ -32,6 +34,9 @@ return [
     // Company ids (the ERP login's "company id", $_SESSION['proj_id']) that get the chatbot. Every other
     // company on the same server sees no widget, and its database is never touched.
     'enabledCompanies' => ['training'],
+
+    // ERP usernames that see the gear icon in the chat and may change the AI key and model.
+    'settingsAdmins' => ['bimol'],
 
     // ------------------------------------------------------------------ database
     // The read-only account that executes AI-generated SQL, per tenant database (the ERP is
