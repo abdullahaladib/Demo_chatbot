@@ -41,13 +41,21 @@ final class Identity
         return self::TIER_LABELS[$this->tier] ?? $this->tier;
     }
 
-    /** Signed-in ERP user, or null if the session is not an active ERP login. */
+    /**
+     * Signed-in ERP user, or null if the session is not an active ERP login or the company is not
+     * in enabledCompanies. Installs the plug-in's tables/views on the company's first visit.
+     */
     public static function fromErpSession(array $session): ?self
     {
         if (($session['mhafuz'] ?? '') !== 'Active' || empty($session['user']['id']) || empty($session['db_name'])) {
             return null;
         }
+        $company = strtolower((string) ($session['proj_id'] ?? ''));
+        if (!in_array($company, array_map('strtolower', (array) Config::get('enabledCompanies', [])), true)) {
+            return null;
+        }
         Db::useErpSession($session);
+        Installer::ensure($company);
         return self::load((int) $session['user']['id'], (int) ($session['user']['group'] ?? 0));
     }
 

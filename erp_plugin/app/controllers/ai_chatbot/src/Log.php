@@ -22,7 +22,7 @@ final class Log
 
     private static function write(string $level, string $message): void
     {
-        $file = AI_CHATBOT_DIR . '/data/ai_chatbot.log.php';
+        $file = AI_CHATBOT_RUNTIME_DIR . '/ai_chatbot.log.php';
         @file_put_contents(
             $file,
             (is_file($file) ? '' : AI_CHATBOT_FILE_GUARD) . sprintf("[%s] %s %s\n", date('Y-m-d H:i:s'), $level, $message),

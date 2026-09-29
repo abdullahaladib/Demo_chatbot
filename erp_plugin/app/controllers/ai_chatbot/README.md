@@ -29,28 +29,43 @@ Add one line before `</body>` in each of these two files:
 <?php require_once SERVER_CORE . "routing/inc.ai_chatbot.php"; /* AI Chatbot plug-in: floating chat widget */ ?>
 ```
 
-## Install (per tenant database)
+## Install
 
-Run these from `app/controllers/ai_chatbot/`. They are command-line only; over the web they
-return 404.
+**Upload and go (no command line needed).**
+- `config.local.php` holds this server's Gemini key.
+- `config.php` → `enabledCompanies` lists the company ids that get the chatbot (default:
+  `training`). Other companies on the same server see no widget, and their databases are never touched.
+- The first time someone from an enabled company opens an ERP page, the plug-in creates its own tables
+  and views in that company's database (`src/Installer.php`). It uses the company's own ERP login.
+- Starting content from `data/seed.php` goes only into empty tables.
+- A marker file then skips this step on later visits.
+- With no `aiAccounts` entry, the AI's SQL runs on the company's own login, locked read-only
+  (`tenantAccountFallback`). The validator, the module allowlist and the column rewrite still apply.
+- The catalogue (`data/catalog.json.php`) ships prebuilt for the training database.
 
-1. Copy `config.local.php.example` to `config.local.php`. Fill in:
-   - the AI key;
-   - `adminDb`, an account with CREATE and CREATE VIEW on the tenant DB;
-   - the `aiAccounts[<tenant db>]` username and a new strong password.
-2. `php install/install_schema.php` creates the `ai_*` tables and the `ai_*`/`v_*` views.
-3. `php install/build_catalog.php` works out which tables belong to which ERP module and hides
-   sensitive columns. It takes about 4 minutes on the training DB. Re-run it after schema changes.
-4. `php install/apply_grants.php <mysql-root-password>` creates the read-only AI account with
-   column-level SELECT grants.
-5. Optional: assign chatbot tiers in `ai_role_assignment` (pbi_id → `hr` / `dept_head` / `ceo`).
-   Line managers and employees are derived automatically.
-6. Optional: put policy text in `ai_knowledge_base`.
-7. Run `php app/controllers/ai_chatbot/tests/run_tests.php` from the ERP root. It makes no AI
-   calls; the model is scripted.
+**Stronger setup (optional, needs the command line).** Run these from `app/controllers/ai_chatbot/`.
+They return 404 over the web.
+1. `php install/build_catalog.php` rebuilds the catalogue for another database, or after schema changes
+   (about 4 minutes).
+2. `php install/apply_grants.php <mysql-root-password>` creates a dedicated SELECT-only AI account with
+   column-level grants. Add it to `config.local.php` → `aiAccounts[<company db name>]`.
+   - On cPanel without root, create a user in "MySQL Databases" with SELECT only instead, and add it the
+     same way.
+3. `php install/install_schema.php [company-id]` runs the same install by hand.
+4. `php app/controllers/ai_chatbot/tests/run_tests.php` (from the ERP root, on the developer machine)
+   makes no AI calls; the model is scripted.
 
-`install/local_demo_setup.php` is for the **local demo clone only**. It sets `Demo@1234` on
-in-service logins.
+**Later:**
+- Chatbot tiers: `ai_role_assignment` (pbi_id → `hr` / `dept_head` / `ceo`). Line managers and
+  employees are derived automatically.
+- Policy text: `ai_knowledge_base`.
+
+**Developer machine only:** `D:\Workspace\erp_local_dev\` sits outside the ERP folder, so it is never
+uploaded. It holds:
+- the local master-DB config and the local AI account;
+- the log, install markers and grants record.
+
+`install/local_demo_setup.php` (sets `Demo@1234` on logins) refuses to run anywhere else.
 
 ## Security model
 

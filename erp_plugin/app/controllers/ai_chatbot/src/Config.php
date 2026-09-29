@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace AiChatbot;
 
 /**
- * Plug-in settings: config.php merged with the machine's config.local.php (secrets).
+ * Plug-in settings: config.php, then config.local.php (this server's secrets), then - on the
+ * developer machine only - erp_local_dev/ai_chatbot.config.php, which lives outside the ERP folder.
  */
 final class Config
 {
@@ -18,6 +19,10 @@ final class Config
             $local = AI_CHATBOT_DIR . '/config.local.php';
             if (is_file($local)) {
                 $values = array_replace_recursive($values, require $local);
+            }
+            $dev = AI_CHATBOT_DEV_DIR . '/ai_chatbot.config.php';
+            if (@is_file($dev)) {
+                $values = array_replace_recursive($values, require $dev);
             }
             self::$values = $values;
         }

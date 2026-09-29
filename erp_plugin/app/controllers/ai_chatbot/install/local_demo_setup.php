@@ -16,6 +16,13 @@ if (PHP_SAPI !== 'cli') { http_response_code(404); exit; } // command line only
 
 require_once __DIR__ . '/../bootstrap.php';
 
+// It rewrites login passwords: refuse anywhere but the developer machine (a server has no erp_local_dev).
+if (!is_dir(AI_CHATBOT_DEV_DIR)) {
+    fwrite(STDERR, "local_demo_setup.php runs only on the developer machine (no " . AI_CHATBOT_DEV_DIR . "). Nothing changed.
+");
+    exit(1);
+}
+
 use AiChatbot\Db;
 
 const DEMO_PASSWORD = 'Demo@1234';

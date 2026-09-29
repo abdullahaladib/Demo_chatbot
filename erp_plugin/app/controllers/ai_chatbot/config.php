@@ -28,6 +28,11 @@ return [
     // PHP on Windows often has no CA bundle: the OS certificate store is used (TLS stays ON).
     'caBundle' => null,
 
+    // ------------------------------------------------------------------ which companies
+    // Company ids (the ERP login's "company id", $_SESSION['proj_id']) that get the chatbot. Every other
+    // company on the same server sees no widget, and its database is never touched.
+    'enabledCompanies' => ['training'],
+
     // ------------------------------------------------------------------ database
     // The read-only account that executes AI-generated SQL, per tenant database (the ERP is
     // multi-tenant: $_SESSION['db_name'] says which tenant the user signed into).
@@ -35,6 +40,11 @@ return [
     'aiAccounts' => [
         // 'erp_training' => ['username' => 'erp_ai_ro', 'password' => '...'],   // config.local.php
     ],
+    // No aiAccounts entry for a company? Run the AI's SQL on the company's own ERP connection
+    // instead, locked to read-only for that session. The validator, the module allowlist and the
+    // column rewrite still apply; only the MySQL-level column grants (layer 1) are missing. A
+    // dedicated SELECT-only user (install/apply_grants.php, or cPanel) is the stronger setup.
+    'tenantAccountFallback' => true,
     'dbHost' => 'localhost',
     'dbPort' => 3306,
 

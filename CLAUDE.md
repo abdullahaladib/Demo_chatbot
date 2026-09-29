@@ -277,7 +277,7 @@ The demo role switcher must be off outside demos.
 - Scope is HR only (employees, leave, attendance, salary, directory). Other ERP modules (accounts, sales,
   CRM, hotel...) are possible later phases: each needs views + access-map entries + tests.
 - **DONE (2026-09-28): the chatbot is plugged into the company ERP clone** at `D:\Workspace\app`. See section 13.
-  It passes 68/68 offline tests (`tests/run_tests.php`, scripted model). The widget was checked in headless Edge on
+  It passes 77/77 offline tests (`tests/run_tests.php`, scripted model). The widget was checked in headless Edge on
   the dashboard and the Accounts module with a stubbed fetch. The owner's first live questions reached Gemini, which
   answered 503 (overloaded). That led to the 90 s turn budget and the clearer "busy" message (commit dc3d940). A
   successful live answer in the ERP has not been confirmed yet.
@@ -287,10 +287,17 @@ The demo role switcher must be off outside demos.
     of it. It is not in git; its HTML source was in the session scratchpad and may be gone.
   - The owner was told how to fill `ai_knowledge_base` (section/title/body rows) and `ai_role_assignment` (pbi_id,
     role hr|dept_head|ceo, dept_id for dept_head) with SQL. Offered: a small ERP admin page to manage both without SQL.
-  - 2026-09-29: the owner is uploading to the live cPanel server with `D:\ERP_AI_Chatbot_Upload.zip`. On the server:
-    extract at the ERP root, add the two include lines, create config.local.php (live tenant DB name as the
-    `aiAccounts` key), then run install_schema → build_catalog → apply_grants, via cPanel Terminal or one-off cron
-    jobs. Without MySQL root: create the AI user in cPanel "MySQL Databases" with SELECT only.
+  - **2026-09-29: `D:\Workspace\app` is UPLOAD-READY.** The owner will zip the whole folder and upload it to the live
+    cPanel server. Nothing local is left in the folder; every developer-only setting lives in `D:\Workspace\erp_local_dev\`
+    (see section 13). On the server it needs no command line:
+    - `db_master_config.php` resolves to the original production values;
+    - the plug-in installs its own tables/views on the first visit of an enabled company (`enabledCompanies` = `training`);
+    - AI SQL runs on the company's own login, read-only (`tenantAccountFallback`);
+    - the catalogue ships prebuilt.
+
+    Alternative: the plug-in-only package `D:\ERP_AI_Chatbot_Upload.zip` (44 files) plus the two one-line hooks.
+    **Warning given:** uploading the whole clone over live replaces every ERP file with the clone's version. That is
+    only safe if the live code has not changed since the clone was taken.
   - Open items:
     - test the plug-in on a MariaDB staging copy (the MariaDB path is untested);
     - confirm on the live server: the PHP version, DB root/WHM access for `apply_grants.php`, and outbound HTTPS to Google;
@@ -326,7 +333,8 @@ PHP with no framework. The live copy is in the ERP clone; **`erp_plugin/` in thi
 generated data, and fails if it spots a key. Human docs: `erp_plugin/app/controllers/ai_chatbot/README.md`.
 
 **Run the ERP locally:**
-- Start it: `cd /d/Workspace/app && php -d extension=mysqli -d extension=gd -d short_open_tag=On -d display_errors=0 -d log_errors=1 -d error_log=/d/Workspace/app/php_errors_local.log -S 127.0.0.1:8090 -t /d/Workspace/app`
+- Start it: `cd /d/Workspace/app && php -d extension=mysqli -d extension=gd -d short_open_tag=On -d display_errors=0 -d log_errors=1 -d error_log=/d/Workspace/erp_local_dev/php_errors.log -S 127.0.0.1:8090 -t /d/Workspace/app`
+  (the log goes OUTSIDE the ERP folder, so an upload never carries it)
   - mysqli is OFF in `C:\php\php.ini`; enable it per command and don't edit php.ini.
 - Open http://training.localhost:8090. The subdomain is the company id, which some print views need.
 - Log in with company id `training`, a username, and `Demo@1234`:
@@ -339,8 +347,16 @@ generated data, and fails if it spots a key. Human docs: `erp_plugin/app/control
 
 **What changed in the ERP clone.** Originals are backed up in `D:\Workspace\app_originals\`.
 **Never** copy those into a repo: `db_master_config.php` holds real production credentials.
-- `app/controllers/config/db_master_config.php` points "central" and "local" at localhost `erp_master`
-  (a local master DB: company_info `training` + database_info → erp_training via erp_app).
+- `app/controllers/config/db_master_config.php` holds the ORIGINAL production values again (since 2026-09-29).
+  Its first lines load `D:\Workspace\erp_local_dev\db_master_config.php` if that file exists (it does only on this
+  machine). That file is the local stand-in: localhost `erp_master` → company_info `training` → erp_training via erp_app.
+  `dirname(__DIR__, 4)` of the config folder is `D:\Workspace`; on a server that path has no `erp_local_dev`.
+- **`D:\Workspace\erp_local_dev\`** (outside the ERP folder, never uploaded, never in git) holds:
+  - the local master config;
+  - `ai_chatbot.config.php` (the local AI account `erp_ai_plugin` + `adminDb`, merged over config.local.php);
+  - `ai_chatbot_runtime/` (plug-in log, install markers, grants record);
+  - `php_errors.log`.
+  If it is missing, the local clone would try the PRODUCTION master server first. Recreate it before running locally.
 - One line before `</body>` in `app/controllers/routing/inc.main_layout.php` (every module page) and in
   `app/views/auth/masters/home.php` (the dashboard): `require_once SERVER_CORE."routing/inc.ai_chatbot.php"`.
 - Added: `app/controllers/ai_chatbot/` (the plug-in), `app/controllers/routing/inc.ai_chatbot.php` (widget
@@ -348,8 +364,19 @@ generated data, and fails if it spots a key. Human docs: `erp_plugin/app/control
 
 **Plug-in design** (`app/controllers/ai_chatbot/`, namespace `AiChatbot\`, autoloaded by `bootstrap.php`):
 - `config.php` holds settings (Gemini `gemini-3.7-flash`).
-- `config.local.php` holds the **secrets** and is never mirrored. It has the Gemini key, the `aiAccounts`
-  `erp_training` → `erp_ai_plugin` password, and `adminDb` = erp_app (CLI only). Template: `config.local.php.example`.
+- `config.local.php` holds only this server's Gemini key and is never mirrored to git. It ships with the upload.
+  The local-only `aiAccounts` / `adminDb` live in `erp_local_dev/ai_chatbot.config.php`. Template: `config.local.php.example`.
+- `enabledCompanies` (config.php, default `['training']`, matched against `$_SESSION['proj_id']`, case-insensitive).
+  Other companies on the same server get no widget, and their DBs are never touched.
+- `src/Installer.php`: `Identity::fromErpSession()` calls `Installer::ensure()`. On an enabled company's first visit it
+  creates the ai_* tables and 31 views with the company's own login. It is flock-guarded and leaves a marker
+  `installed.<db>.php` (VERSION const; bump it to force re-install). `data/seed.php` (training KB rows + roles
+  1001 ceo / 1005 dept_head) goes only into EMPTY tables, and roles only if the employee is In Service.
+- `tenantAccountFallback` (default true): with no `aiAccounts` entry, `Db::ai()` uses the session's company login with
+  a read-only session. Layers 2-4 plus the column rewrite still hold; the MySQL column grants (layer 1) are then missing.
+- `AI_CHATBOT_RUNTIME_DIR` (bootstrap) is where the log, markers and grants record go: `data/` on a server,
+  `erp_local_dev/ai_chatbot_runtime/` here.
+- `install/local_demo_setup.php` refuses to run unless `erp_local_dev` exists.
 - Identity comes from the ERP session. `mhafuz=Active`, `user.id`, `user.group` and the tenant `db_*` keys come
   from the login. Tier is decided the same way as `RoleResolver` (ai_role_assignment > line manager > employee).
   A login without an in-service employee gets tier `none`.
@@ -398,6 +425,16 @@ generated data, and fails if it spots a key. Human docs: `erp_plugin/app/control
 ## Change log
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
+
+- 2026-09-29 (original Windows device) — **`D:\Workspace\app` made upload-ready** (owner: "just zip the folder and upload
+  it to cPanel and it will work"):
+  - `db_master_config.php` is back to the original production values, plus a dev-only override from
+    `D:\Workspace\erp_local_dev\`.
+  - The plug-in's local DB accounts, log, markers and the PHP error log moved to `erp_local_dev`.
+  - New: `enabledCompanies`, the automatic `Installer` (+ `data/seed.php`) and `tenantAccountFallback` (read-only).
+  - `local_demo_setup.php` is locked to the dev machine.
+  - Tests 77/77, incl. HTTP. A simulated server path resolves to the production config with no local accounts.
+  - `D:\ERP_AI_Chatbot_Upload.zip` rebuilt (44 files, now incl. config.local.php with the key + the catalogue).
 
 - 2026-09-29 (original Windows device) — **Live (cPanel) upload package** for the ERP plug-in:
   - Folder `D:\ERP_AI_Chatbot_Upload\` + `D:\ERP_AI_Chatbot_Upload.zip`, 40 files; not in git. Made with `tar -a`,

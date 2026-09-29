@@ -12,6 +12,7 @@ mkdir -p "$HERE/$PLUGIN" "$HERE/app/controllers/routing" "$HERE/app/views/ai_cha
 ( cd "$ERP/$PLUGIN" && find . -type f \
     ! -name config.local.php \
     ! -path './data/catalog.json.php' ! -path './data/grants.sql.php' ! -path './data/ai_chatbot.log.php' \
+    ! -path './data/installed.*' ! -path './data/install.lock' \
     -print0 | while IFS= read -r -d '' f; do mkdir -p "$HERE/$PLUGIN/$(dirname "$f")"; cp "$f" "$HERE/$PLUGIN/$f"; done )
 cp "$ERP/app/controllers/routing/inc.ai_chatbot.php" "$HERE/app/controllers/routing/"
 cp "$ERP/app/views/ai_chatbot/api/ask.php" "$HERE/app/views/ai_chatbot/api/"

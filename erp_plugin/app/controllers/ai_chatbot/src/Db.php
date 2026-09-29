@@ -59,7 +59,10 @@ final class Db
         if (self::$ai === null) {
             $tenant = self::tenant();
             $account = Config::get('aiAccounts')[$tenant] ?? null;
-            if (!$account) {
+            if (($account['username'] ?? '') === '' && Config::get('tenantAccountFallback', false)) {
+                $account = self::$appCredentials; // the company's own login, made read-only below
+            }
+            if (!$account || ($account['username'] ?? '') === '') {
                 throw new \RuntimeException("AI chatbot: no read-only AI account configured for tenant '$tenant'");
             }
             $pdo = self::connect($account['username'], $account['password'], $tenant);

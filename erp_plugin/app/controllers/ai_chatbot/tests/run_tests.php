@@ -235,6 +235,38 @@ $last = Db::app()->query('SELECT employee_id, erp_user_id, role FROM ai_chat_aud
 check('audit row carries pbi_id + ERP user_id + tier', (int) $last['employee_id'] === $hr->pbiId && (int) $last['erp_user_id'] === $hr->userId && $last['role'] === 'hr', json_encode($last));
 
 // ------------------------------------------------------------------------------------------
+section('Upload-ready: company switch, automatic install, read-only fallback');
+$admin = \AiChatbot\Config::get('adminDb');
+$session = ['mhafuz' => 'Active', 'user' => ['id' => $tanvir->userId, 'group' => $tanvir->group],
+    'db_user' => $admin['username'], 'db_pass' => $admin['password'], 'db_name' => $admin['database']];
+check('company not in enabledCompanies -> no chatbot', Identity::fromErpSession($session + ['proj_id' => 'someothercompany']) === null);
+$marker = AI_CHATBOT_RUNTIME_DIR . '/installed.' . $admin['database'] . '.php';
+@unlink($marker);
+$viaSession = Identity::fromErpSession($session + ['proj_id' => 'training']);
+check('enabled company -> identity, and the install ran on first visit', $viaSession?->userId === $tanvir->userId && is_file($marker), (string) is_file($marker));
+$t = microtime(true);
+Identity::fromErpSession($session + ['proj_id' => 'TRAINING']);
+check('second visit skips the install (marker), company id is case-insensitive', microtime(true) - $t < 1.0, sprintf('%.2fs', microtime(true) - $t));
+check('runtime files stay outside the ERP folder on this machine', str_starts_with(str_replace('\\', '/', AI_CHATBOT_RUNTIME_DIR), str_replace('\\', '/', AI_CHATBOT_DEV_DIR)), AI_CHATBOT_RUNTIME_DIR);
+
+// No aiAccounts entry for the company (a fresh server): the company's own login is used, read-only.
+\AiChatbot\Config::override(['aiAccounts' => [$admin['database'] => ['username' => '', 'password' => '']]]);
+Db::useErpSession($session);
+$r = (new QueryGateway($tanvir, $pT))->run('SELECT COUNT(DISTINCT jv_no) AS vouchers FROM journal');
+check('fallback: query runs on the company login', $r['status'] === 'ok' && (int) $r['rows'][0]['vouchers'] > 0, json_encode($r['rows'] ?? $r['reason']));
+try {
+    Db::ai()->exec('UPDATE ai_knowledge_base SET title = title WHERE 1 = 0');
+    check('fallback: the connection is read-only', false, 'write ran');
+} catch (PDOException $e) {
+    check('fallback: the connection is read-only', true);
+}
+$r = (new QueryGateway($tanvir, $pT))->run('SELECT proj_password FROM project_info LIMIT 1');
+check('fallback: hidden columns still unreadable', $r['status'] !== 'ok', $r['status']);
+$real = (require AI_CHATBOT_DEV_DIR . '/ai_chatbot.config.php')['aiAccounts'];
+\AiChatbot\Config::override(['aiAccounts' => $real]);
+Db::useAdminAccount();
+
+// ------------------------------------------------------------------------------------------
 section('HTTP endpoint guards (ERP must be running)');
 $base = rtrim($argv[1] ?? 'http://training.localhost:8090', '/');
 $host = parse_url($base, PHP_URL_HOST);
