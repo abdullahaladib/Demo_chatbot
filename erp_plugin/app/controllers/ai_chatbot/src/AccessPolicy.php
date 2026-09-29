@@ -106,8 +106,11 @@ final class AccessPolicy
     /**
      * How a referenced object must be row-scoped:
      *   ['param' => 'me'|'dept', 'column' => ..., 'required' => true]   scoped view (model must filter)
-     *   ['param' => 'group', 'column' => 'group_for', 'required' => false, 'columns' => [...]]   base table
-     *   null                                                              no row scope
+     *   ['param' => 'group', 'column' => 'group_for', 'required' => false, 'columns' => [...]]   company table
+     *   ['param' => null, 'column' => null, 'required' => false, 'columns' => [...]]             other table
+     *   null                                                              no rewrite (unscoped view)
+     * Every catalogued table is rewritten to its NON-SENSITIVE columns, so hidden columns stay
+     * hidden even where the AI account only has a database-wide SELECT (cPanel without root).
      */
     public function scopeOf(string $name): ?array
     {
@@ -117,11 +120,13 @@ final class AccessPolicy
             return $v['scope'] ? ['param' => $v['scope'], 'column' => $v['column'], 'required' => true] : null;
         }
         $t = Catalog::table($lower);
-        if ($t && $t['groupFor']) {
-            return ['param' => 'group', 'column' => 'group_for', 'required' => false,
-                'columns' => array_column($t['columns'], 'name')];
+        if ($t === null) {
+            return null;
         }
-        return null;
+        $columns = array_column($t['columns'], 'name');
+        return $t['groupFor']
+            ? ['param' => 'group', 'column' => 'group_for', 'required' => false, 'columns' => $columns]
+            : ['param' => null, 'column' => null, 'required' => false, 'columns' => $columns];
     }
 
     /** Modules (id => name) the user has that have catalogued tables. */

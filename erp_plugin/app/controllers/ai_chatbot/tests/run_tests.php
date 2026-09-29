@@ -117,6 +117,18 @@ $r = $v->validate('SELECT leave_type FROM v_my_leave_balance LIMIT 5');
 check('scoped view without :me -> missing_scope', !$r->ok && $r->code === 'missing_scope', $r->code);
 $r = $v->validate('SELECT employee_id FROM v_my_profile WHERE employee_id = :me OR 1=1');
 check('":me OR 1=1" still wraps the view to the asker', $r->ok && str_contains($r->executableSql, 'WHERE employee_id = ?'), $r->executableSql);
+$r = $v->validate('SELECT proj_id FROM project_info LIMIT 5');
+check('table without group_for is still wrapped to its allowed columns', $r->ok && str_contains($r->executableSql, '(SELECT `proj_id`')
+    && !str_contains($r->executableSql, 'proj_password') && $r->placeholders === [], $r->executableSql);
+// Hidden columns must stay hidden even for an account with database-wide SELECT (cPanel without
+// root cannot grant per column): run the rewritten SQL as the ADMIN account, which can read everything.
+$r = $v->validate('SELECT proj_password FROM project_info LIMIT 1');
+try {
+    Db::app()->query($r->executableSql);
+    check('hidden column unreadable even with full SELECT (app-level wrap)', false, 'query ran');
+} catch (PDOException $e) {
+    check('hidden column unreadable even with full SELECT (app-level wrap)', str_contains($e->getMessage(), '1054'), $e->getMessage());
+}
 foreach ([
     'DELETE FROM journal' => 'DELETE',
     'SELECT jv_no FROM journal; DROP TABLE journal' => 'two statements',

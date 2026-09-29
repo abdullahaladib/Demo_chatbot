@@ -202,8 +202,14 @@ final class SqlValidator
             $select = isset($scope['columns'])
                 ? implode(', ', array_map(fn($c) => '`' . str_replace('`', '``', $c) . '`', $scope['columns']))
                 : '*';
-            $inner = "(SELECT $select FROM `{$ref['name']}` WHERE `{$scope['column']}` = %s)";
             $alias = $ref['hasAlias'] ? '' : " AS `{$ref['name']}`";
+            if ($scope['param'] === null) {
+                // no row scope, but only the table's non-sensitive columns
+                $inner = "(SELECT $select FROM `{$ref['name']}`)";
+                $this->tokens[$ref['index']] = ['t' => 'wrap', 'v' => $inner . $alias, 'x' => $inner . $alias, 'p' => null];
+                continue;
+            }
+            $inner = "(SELECT $select FROM `{$ref['name']}` WHERE `{$scope['column']}` = %s)";
             $this->tokens[$ref['index']] = [
                 't' => 'wrap',
                 'v' => sprintf($inner, ':' . $scope['param']) . $alias,
@@ -223,7 +229,9 @@ final class SqlValidator
                 $placeholders[] = substr($tok['v'], 1);
             } elseif ($tok['t'] === 'wrap') {
                 $exec .= $tok['x'];
-                $placeholders[] = $tok['p'];
+                if ($tok['p'] !== null) {
+                    $placeholders[] = $tok['p'];
+                }
             } else {
                 $exec .= $tok['v'];
             }

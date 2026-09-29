@@ -287,6 +287,10 @@ The demo role switcher must be off outside demos.
     of it. It is not in git; its HTML source was in the session scratchpad and may be gone.
   - The owner was told how to fill `ai_knowledge_base` (section/title/body rows) and `ai_role_assignment` (pbi_id,
     role hr|dept_head|ceo, dept_id for dept_head) with SQL. Offered: a small ERP admin page to manage both without SQL.
+  - 2026-09-29: the owner is uploading to the live cPanel server with `D:\ERP_AI_Chatbot_Upload.zip`. On the server:
+    extract at the ERP root, add the two include lines, create config.local.php (live tenant DB name as the
+    `aiAccounts` key), then run install_schema → build_catalog → apply_grants, via cPanel Terminal or one-off cron
+    jobs. Without MySQL root: create the AI user in cPanel "MySQL Databases" with SELECT only.
   - Open items:
     - test the plug-in on a MariaDB staging copy (the MariaDB path is untested);
     - confirm on the live server: the PHP version, DB root/WHM access for `apply_grants.php`, and outbound HTTPS to Google;
@@ -394,6 +398,17 @@ generated data, and fails if it spots a key. Human docs: `erp_plugin/app/control
 ## Change log
 
 Newest first. Format: `YYYY-MM-DD (device) — change`.
+
+- 2026-09-29 (original Windows device) — **Live (cPanel) upload package** for the ERP plug-in:
+  - Folder `D:\ERP_AI_Chatbot_Upload\` + `D:\ERP_AI_Chatbot_Upload.zip`, 40 files; not in git. Made with `tar -a`,
+    because PowerShell 5.1's Compress-Archive writes backslash paths that break unzip on Linux.
+  - Excludes config.local.php, tests/, `install/local_demo_setup.php` (it would reset every live password to Demo@1234),
+    and the generated catalog/grants/log.
+  - Hardening: `AccessPolicy::scopeOf` now wraps EVERY catalogued table to its non-sensitive columns (not only
+    group_for tables). Hidden columns stay hidden even if the AI account only gets database-wide SELECT, as on cPanel
+    without root, where column grants are impossible. New tests cover it: 70/70 incl. HTTP.
+  - The two ERP hooks were re-checked against D:\Workspace\app_originals: exactly one added line each. The owner edits
+    those two files on the server by hand, rather than uploading the local copies.
 
 - 2026-09-28 (original Windows device) — End of day: section 11 records where we left off. The deployment PDF was
   revised to leave Demo_chatbot out. Code, the erp_plugin mirror and GitHub are in sync.
